@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>postmortem</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.26.0/codemirror.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.26.0/codemirror.min.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.26.0/theme/tomorrow-night-bright.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.26.0/mode/clike/clike.min.js"></script>
+<script src="https://cdn.rawgit.com/cpettitt/dagre/v0.7.4/dist/dagre.min.js"></script>
+<style>
+html, body {
+	padding: 0;
+	margin: 0;
+	width: 100%;
+	height: 100%;
+}
+svg {
+	background-color: #2a2a2a;
+}
+rect.block {
+	fill: #4a4a4a;
+	stroke: #5f5f5f;
+}
+text {
+	font: 10pt "Luculent Regular", monospace;
+}
+tspan.address {
+	fill: #98c99b;
+}
+tspan.mnemonic {
+	fill: #fff;
+}
+tspan.register {
+	fill: #ebca8a;
+}
+path.edge {
+	fill: none;
+	stroke-width: 2;
+}
+path.edge.unconditional {
+	stroke: #77c5d1;
+	marker-end: url(#TriangleUnconditional);
+}
+path.edge.fallthrough {
+	stroke: #98c99b;
+	marker-end: url(#TriangleFallthrough);
+}
+path.edge.jump {
+	stroke: #895f63;
+	marker-end: url(#TriangleJump);
+}
+.container {
+	display: flex;
+	position: relative;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+}
+.container-column {
+	flex-direction: column;
+}
+.container-row {
+	flex-direction: row;
+}
+.container-column .item, container-row .item {
+	flex: 1 100%;
+}
+.navbar {
+	flex: 1 500px;
+}
+.CodeMirror {
+	width: 100%;
+	height: 100%;
+}
+
+.gdb-console {
+	width: 100%;
+	height: 200px;
+	min-height: 200px;
+	max-height: 200px;
+	overflow-y: auto;
+	font-family: monospace;
+	white-space: pre;
+	background: #1d1f21;
+}
+.gdb-console .console {
+	color: #c5c8c6;
+}
+.gdb-console .log {
+	color: #969896;
+}
+.gdb-console .error {
+	color: #cc6666;
+}
+.gdb-console .prompt {
+	color: #373b41;
+}
+
+#registers, #stack {
+	font: 10pt "Luculent Regular", monospace;
+	overflow: auto;
+  white-space: pre;
+	background: #1d1f21;
+	color: #c5c8c6;
+}
+</style>
+</script>
+</head>
+<body>
+	<div class="container container-column">
+		<div class="item container container-row">
+			<div class="item container container-row">
+				<svg class="item" id="svg" xmlns="http://www.w3.org/2000/svg"
+						 xmlns:xlink="http://www.w3.org/1999/xlink">
+					<defs>
+						<marker id="TriangleUnconditional" viewBox="0 0 10 10" refX="10" refY="5"
+										 markerWidth="6" markerHeight="6" orient="auto">
+							<path d="M 0 0 L 10 5 L 0 10 z" fill="#77c5d1" />
+						</marker>
+						<marker id="TriangleFallthrough" viewBox="0 0 10 10" refX="10" refY="5"
+										 markerWidth="6" markerHeight="6" orient="auto">
+							<path d="M 0 0 L 10 5 L 0 10 z" fill="#98c99b" />
+						</marker>
+						<marker id="TriangleJump" viewBox="0 0 10 10" refX="10" refY="5"
+										 markerWidth="6" markerHeight="6" orient="auto">
+							<path d="M 0 0 L 10 5 L 0 10 z" fill="#895f63" />
+						</marker>
+					</defs>
+				</svg>
+				<div class="item" id="source-editor"></div>
+				<div class="item" id="assembly-editor"></div>
+			</div>
+			<div class="navbar container container-column">
+				<div class="item" id="registers"></div>
+				<div class="item" id="stack">Bar</div>
+			</div>
+		</div>
+		<div class="gdb-console"></div>
+		<form id="gdb-console">
+			(gdb) <input type="text" name="command" size="100" autocomplete="off">
+			<label>View
+				<select name="view">
+					<option value="source">Source</option>
+					<option value="graph">Graph</option>
+				</select>
+			</label>
+		</form>
+	</div>
+	<script>
+		var svg = document.getElementById('svg');
+		var originalWidth = svg.clientWidth;
+		var originalHeight = svg.clientHeight;
+		var maxWidth = originalWidth;
+		var maxHeight = originalHeight;
+		let viewport = {
+			x: 0,
+			y: 0,
+			width: originalWidth,
+			height: originalHeight,
+		};
+		var mousedown = false;
+		var mouseanchor = null;
+		svg.addEventListener('wheel', function(ev) {
+			viewport.width = Math.max(originalWidth, viewport.width - ev.wheelDelta);
+			viewport.height = Math.max(originalHeight, viewport.height - ev.wheelDelta);
+			svg.setAttribute('viewBox', viewport.x + ' ' + viewport.y + ' ' + viewport.width + ' ' + viewport.height);
+		});
+		svg.addEventListener('mousemove', function(ev) {
+			if (!mousedown)
+				return;
+			var scale = viewport.width / originalWidth;
+			viewport.x = Math.min(Math.max(0, viewport.x - scale * (ev.offsetX - mouseanchor.x)), maxWidth - originalWidth / scale);
+			viewport.y = Math.min(Math.max(0, viewport.y - scale * (ev.offsetY - mouseanchor.y)), maxHeight - originalWidth / scale);
+			svg.setAttribute('viewBox', viewport.x + ' ' + viewport.y + ' ' + viewport.width + ' ' + viewport.height);
+			mouseanchor = {
+				x: ev.offsetX,
+				y: ev.offsetY,
+			};
+		});
+		svg.addEventListener('mousedown', function(ev) {
+			ev.preventDefault();
+			mousedown = true;
+			mouseanchor = {
+				x: ev.offsetX,
+				y: ev.offsetY,
+			};
+		});
+		svg.addEventListener('mouseup', function(ev) {
+			ev.preventDefault();
+			mousedown = false;
+			mouseanchor = null;
+		});
+		var svgNS = 'http://www.w3.org/2000/svg';
+    var xlinkNS = 'http://www.w3.org/1999/xlink';
+
+		function createSVGNode(type, attributes) {
+			let node = document.createElementNS(svgNS, type);
+			if (attributes) {
+				for (const key in attributes) {
+					node.setAttributeNS(null, key, attributes[key]);
+				}
+			}
+			return node;
+		}
+
+		function renderGraph(data) {
+			var offsetY = 20;
+			var blocks = {};
+			let g = new dagre.graphlib.Graph();
+			g.setGraph({});
+			while (svg.lastChild && svg.lastChild.nodeName != 'defs') {
+				svg.removeChild(svg.lastChild);
+			}
+			for (const addr in data) {
+				const block = data[addr];
+				let blockElm = createSVGNode('g');
+				let blockTextElm = createSVGNode('text');
+				blockElm.appendChild(blockTextElm);
+				var first = true;
+				var addressWidth = 0;
+				var mnemonicWidth = 0;
+				var opWidth = 0;
+				for (var i = 0; i < block.instructions.length; i++) {
+					var ins = block.instructions[i];
+
+					addressWidth = Math.max(addressWidth, ins.address.length);
+					mnemonicWidth = Math.max(mnemonicWidth, ins.mnemonic.length);
+					opWidth = Math.max(opWidth, ins.op.length);
+				}
+				for (var i = 0; i < block.instructions.length; i++) {
+					var ins = block.instructions[i];
+
+					let addressSpan = createSVGNode('tspan', {
+						x: 0,
+						y: i + 'em',
+					});
+					addressSpan.setAttribute('class', 'address');
+					addressSpan.appendChild(document.createTextNode(ins.address));
+					blockTextElm.appendChild(addressSpan);
+
+					let mnemonicSpan = createSVGNode('tspan', {
+						x: (addressWidth + 2) + 'ex',
+						y: i + 'em',
+					});
+					mnemonicSpan.setAttribute('class', 'mnemonic');
+					mnemonicSpan.appendChild(document.createTextNode(ins.mnemonic));
+					blockTextElm.appendChild(mnemonicSpan);
+
+					let registerSpan = createSVGNode('tspan', {
+						x: (addressWidth + mnemonicWidth + 5) + 'ex',
+						y: i + 'em',
+					});
+					registerSpan.setAttribute('class', 'register');
+					registerSpan.appendChild(document.createTextNode(ins.op));
+					blockTextElm.appendChild(registerSpan);
+				}
+				svg.appendChild(blockElm);
+				let blockTextBBox = blockElm.getBBox();
+				let rectElm = createSVGNode('rect', {
+					x: blockTextBBox.x - 5,
+					y: blockTextBBox.y - 5,
+					width: blockTextBBox.width + 10,
+					height: blockTextBBox.height + 10,
+				});
+				rectElm.setAttribute('class', 'block');
+				blockElm.insertBefore(rectElm, blockTextElm);
+				blocks[addr] = {
+					label: addr,
+					width: blockTextBBox.width + 10,
+					height: blockTextBBox.height + 10,
+					element: blockElm,
+				};
+				g.setNode(addr, blocks[addr]);
+				for (var i = 0; i < block.edges.length; i++) {
+					g.setEdge(addr, block.edges[i].target, {type: block.edges[i].type});
+				}
+			}
+
+			dagre.layout(g);
+			g.nodes().forEach(function(v) {
+				var block = g.node(v);
+				block.element.setAttributeNS(null, 'transform', 'translate(' + (5 + block.x - block.width / 2) + ', ' + (18 + block.y - block.height / 2) + ')');
+			});
+			g.edges().forEach(function(e) {
+				var edge = g.edge(e);
+				var points = '';
+				for (var i = 0; i < edge.points.length; i++) {
+					if (i == 0) {
+						points += 'M';
+					} else {
+						points += 'L';
+					}
+					points += edge.points[i].x + ',' + edge.points[i].y;
+				}
+				var lineElm = createSVGNode('path', {
+					d: points,
+				});
+				lineElm.setAttribute('class', 'edge ' + edge.type);
+				svg.appendChild(lineElm);
+			});
+			maxWidth = svg.getBBox().width;
+			maxHeight = svg.getBBox().height;
+		}
+
+		function appendConsoleNode(contents, className) {
+			var consoleDiv = document.querySelector('.gdb-console');
+			var node = document.createElement('span');
+			node.className = className;
+			node.appendChild(document.createTextNode(contents));
+			consoleDiv.appendChild(node);
+			node.scrollIntoView();
+		}
+
+		let sourceEditor = CodeMirror(document.getElementById('source-editor'), {
+			mode: 'clike',
+			lineNumbers: true,
+			readOnly: true,
+			theme: 'tomorrow-night-bright',
+		});
+		let assemblyEditor = CodeMirror(document.getElementById('assembly-editor'), {
+			value: 'Assembly!',
+			mode: 'text/plain',
+			lineNumbers: true,
+			readOnly: true,
+			theme: 'tomorrow-night-bright',
+		});
+
+		var socket = new WebSocket('ws://localhost:8001');
+		var currentFrame = {
+			fullname: null,
+			line: null,
+			address: null,
+		};
+		var payloadCount = 0;
+		var promiseMapping = {};
+
+		function Deferred() {
+			this.resolve = null;
+			this.reject = null;
+			this.promise = new Promise(function (resolve, reject) {
+			  this.resolve = resolve;
+			  this.reject = reject;
+		  }.bind(this));
+			Object.freeze(this);
+		}
+		function socketSend(payload) {
+			payload.token = ++payloadCount;
+			socket.send(JSON.stringify(payload));
+			promiseMapping[payload.token] = new Deferred();
+			return promiseMapping[payload.token].promise;
+		}
+		var sourceCache = {};
+		function onSourceReady() {
+			sourceEditor.setValue(sourceCache[currentFrame.fullname]);
+			sourceEditor.scrollIntoView({
+				line: currentFrame.line - 1,
+				ch: 0
+			}, 100);
+			sourceEditor.addLineClass(currentFrame.line - 1, 'wrap', 'CodeMirror-activeline-background');
+		}
+		function onAssemblyReady(currentAddress, insns) {
+			var contents = '';
+			var activeLine = 0;
+			for (var i = 0; i < insns.length; i++) {
+				contents += insns[i].address + ' ' + insns[i].inst + '\n';
+				if (insns[i].address == currentAddress) {
+					activeLine = i;
+				}
+			}
+			assemblyEditor.eachLine(function (line) {
+				assemblyEditor.removeLineClass(line, 'wrap');
+			});
+			assemblyEditor.setValue(contents);
+			assemblyEditor.scrollIntoView({
+				line: activeLine,
+				ch: 0
+			}, 100);
+			assemblyEditor.addLineClass(activeLine, 'wrap', 'CodeMirror-activeline-background');
+			var startAddress = parseInt(insns[0].address.substr(2), 16);
+			var endAddress = parseInt(insns[insns.length - 1].address.substr(2), 16);
+			socketSend({method:'run', command:'-data-read-memory-bytes ' + startAddress + ' ' + (endAddress - startAddress + 32)}).then(function (record){
+				socketSend({method:'disassemble-graph', memory: record.memory[0].contents, startAddress: startAddress, endAddress: endAddress}).then(function (record){
+					renderGraph(record);
+				});
+			});
+		}
+		function onThreadSelected(frame) {
+			if (currentFrame.line) {
+				sourceEditor.removeLineClass(currentFrame.line - 1, 'wrap');
+			}
+			currentFrame = frame;
+			var cmd = '-data-disassemble -f ' + currentFrame.fullname + ' -l ' + currentFrame.line + ' -n -1 -- 0';
+			socketSend({method:'run', 'command':cmd}).then(function (record) {
+				onAssemblyReady(currentFrame.addr, record.asm_insns);
+			});
+			socketSend({method:'run', 'command':'-data-list-register-values --skip-unavailable x'}).then(function (record){
+				var registersNode = document.getElementById('registers');
+				while (registersNode.firstChild) {
+					registersNode.removeChild(registersNode.firstChild);
+				}
+				for (var i = 0; i < record['register-values'].length; i++) {
+					var reg = record['register-values'][i];
+					if (parseInt(reg.number) > registerNames.length) {
+						continue;
+					}
+					var elm = document.createTextNode(registerNames[parseInt(reg.number)] + ' ' + reg.value + '\n');
+					registersNode.appendChild(elm);
+				}
+			});
+			socketSend({method:'run', 'command':'-data-read-memory $rsp x 8 100 1'}).then(function (record){
+				var stackNode = document.getElementById('stack');
+				while (stackNode.firstChild) {
+					stackNode.removeChild(stackNode.firstChild);
+				}
+				for (var i = 0; i < record['memory'].length; i++) {
+					var entry = record['memory'][i];
+					var elm = document.createTextNode(entry.addr + ' ' + entry.data[0] + '\n');
+					stackNode.appendChild(elm);
+				}
+			});
+			if (sourceCache.hasOwnProperty(currentFrame.fullname)) {
+				onSourceReady();
+				return;
+			}
+			socketSend({method:'get-source', filename:currentFrame.fullname}).then(function (record) {
+				sourceCache[currentFrame.fullname] = record || '';
+				onSourceReady();
+			});
+		}
+		socket.onmessage = function(event) {
+			var data = JSON.parse(event.data);
+			for (var i = 0; i < data.length; i++) {
+				if (data[i].type == 'console-stream') {
+					appendConsoleNode(data[i].payload, 'console');
+				} else if (data[i].type == 'log-stream') {
+					appendConsoleNode(data[i].payload, 'log');
+				} else if (data[i].type == 'error-stream') {
+					appendConsoleNode(data[i].payload, 'error');
+				} else if (data[i].type == 'notify-async' && data[i]['class'] == 'thread-selected') {
+					onThreadSelected(data[i].output.frame);
+				} else if (data[i].type == 'result') {
+					if (typeof(data[i].token) === 'undefined' || !promiseMapping.hasOwnProperty(data[i].token))
+						 continue;
+					promiseMapping[data[i].token].resolve(data[i].record);
+					delete promiseMapping[data[i].token];
+				} else {
+					console.log(data[i]);
+				}
+			}
+		};
+		socket.onerror = function(event) {
+			console.error(event);
+		};
+		var registerNames = [];
+		socket.onopen = function(event) {
+		  socketSend({method:'run', 'command':'-data-list-register-names'}).then(function (record) {
+				Array.prototype.push.apply(registerNames, record['register-names']);
+				socketSend({method:'run', 'command':'-thread-info'}).then(function (record) {
+					for (var i = 0; i < record.threads.length; ++i) {
+						if (record.threads[i].id != record['current-thread-id'])
+							 continue;
+						onThreadSelected(record.threads[i].frame);
+					}
+				});
+		  });
+		};
+
+		var cmdHistory = [];
+		var cmdHistoryIdx = 0;
+		document.querySelector('#gdb-console').addEventListener('submit', function(ev) {
+		  ev.preventDefault();
+			var cmd = document.querySelector('#gdb-console input').value;
+			if (cmd) {
+				cmdHistory.push(cmd);
+				cmdHistoryIdx = cmdHistory.length;
+			} else if (cmdHistory.length) {
+				cmd = cmdHistory[cmdHistory.length - 1];
+			} else {
+				return;
+			}
+			appendConsoleNode('(gdb) ' + cmd + '\n', 'prompt');
+			document.querySelector('#gdb-console input').value = '';
+			socketSend({method:'run', 'command':cmd});
+	  });
+		document.querySelector('#gdb-console input').addEventListener('keydown', function(ev) {
+			if (ev.key == 'ArrowUp') {
+				ev.preventDefault();
+				if (cmdHistoryIdx > 0) {
+					document.querySelector('#gdb-console input').value = cmdHistory[--cmdHistoryIdx];
+				}
+			} else if (ev.key == 'ArrowDown') {
+				ev.preventDefault();
+				if (cmdHistoryIdx < cmdHistory.length) {
+					document.querySelector('#gdb-console input').value = cmdHistory[++cmdHistoryIdx] || '';
+				} else {
+					document.querySelector('#gdb-console input').value = '';
+				}
+			}
+		});
+	</script>
+</body>
+</html>
