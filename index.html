@@ -497,6 +497,15 @@ path.edge.jump {
 				}
 			}
 		});
+		document.querySelector('#gdb-console select[name="view"]').addEventListener('change', function(ev) {
+			if (ev.target.value == 'graph') {
+				document.getElementById('svg').style.display = 'block';
+				document.getElementById('source-editor').style.display = 'none';
+			} else {
+				document.getElementById('svg').style.display = 'none';
+				document.getElementById('source-editor').style.display = 'block';
+			}
+		});
 	</script>
 </body>
 </html>
