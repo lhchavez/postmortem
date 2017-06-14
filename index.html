@@ -16,6 +16,7 @@ html, body {
 }
 svg {
 	background-color: #2a2a2a;
+	display: none;
 }
 rect.block {
 	fill: #4a4a4a;
@@ -72,6 +73,9 @@ path.edge.jump {
 	width: 100%;
 	height: 100%;
 }
+.right {
+	text-align: right;
+}
 
 .gdb-console {
 	width: 100%;
@@ -99,9 +103,12 @@ path.edge.jump {
 #registers, #stack {
 	font: 10pt "Luculent Regular", monospace;
 	overflow: auto;
-  white-space: pre;
 	background: #1d1f21;
 	color: #c5c8c6;
+}
+#registers table td, #stack table td {
+	overflow: none;
+	text-overflow: ellipsis;
 }
 </style>
 </script>
@@ -131,8 +138,27 @@ path.edge.jump {
 				<div class="item" id="assembly-editor"></div>
 			</div>
 			<div class="navbar container container-column">
-				<div class="item" id="registers"></div>
-				<div class="item" id="stack">Bar</div>
+				<div class="item" id="registers">
+					<table>
+						<thead>
+							<th>Register</th>
+							<th>Value</th>
+						</thead>
+						<tbody>
+						</tbody>
+					</table>
+				</div>
+				<div class="item" id="stack">
+					<table>
+						<thead>
+							<th>Address</th>
+							<th>Offset</th>
+							<th>Value</th>
+						</thead>
+						<tbody>
+						</tbody>
+					</table>
+				</div>
 			</div>
 		</div>
 		<div class="gdb-console"></div>
@@ -394,28 +420,45 @@ path.edge.jump {
 				onAssemblyReady(currentFrame.addr, record.asm_insns);
 			});
 			socketSend({method:'run', 'command':'-data-list-register-values --skip-unavailable x'}).then(function (record){
-				var registersNode = document.getElementById('registers');
-				while (registersNode.firstChild) {
-					registersNode.removeChild(registersNode.firstChild);
+				var registersElement = document.querySelector('#registers tbody');
+				while (registersElement.firstChild) {
+					registersElement.removeChild(registersElement.firstChild);
 				}
 				for (var i = 0; i < record['register-values'].length; i++) {
 					var reg = record['register-values'][i];
 					if (parseInt(reg.number) > registerNames.length) {
 						continue;
 					}
-					var elm = document.createTextNode(registerNames[parseInt(reg.number)] + ' ' + reg.value + '\n');
-					registersNode.appendChild(elm);
+					var rowElement = document.createElement('tr');
+					var cellElement = document.createElement('td');
+					cellElement.appendChild(document.createTextNode(registerNames[parseInt(reg.number)]));
+					rowElement.appendChild(cellElement);
+					cellElement = document.createElement('td');
+					cellElement.appendChild(document.createTextNode(reg.value));
+					rowElement.appendChild(cellElement);
+					registersElement.appendChild(rowElement);
 				}
 			});
-			socketSend({method:'run', 'command':'-data-read-memory $rsp x 8 100 1'}).then(function (record){
-				var stackNode = document.getElementById('stack');
-				while (stackNode.firstChild) {
-					stackNode.removeChild(stackNode.firstChild);
+			socketSend({method:'run', 'command':'-data-read-memory $rsp-128 x 8 100 1'}).then(function (record){
+				var stackElement = document.querySelector('#stack tbody');
+				while (stackElement.firstChild) {
+					stackElement.removeChild(stackElement.firstChild);
 				}
-				for (var i = 0; i < record['memory'].length; i++) {
-					var entry = record['memory'][i];
-					var elm = document.createTextNode(entry.addr + ' ' + entry.data[0] + '\n');
-					stackNode.appendChild(elm);
+				let offset = -128;
+				for (let entry of record['memory']) {
+					var rowElement = document.createElement('tr');
+					var cellElement = document.createElement('td');
+					cellElement.appendChild(document.createTextNode(entry.addr));
+					rowElement.appendChild(cellElement);
+					cellElement = document.createElement('td');
+					cellElement.className = 'right';
+					cellElement.appendChild(document.createTextNode(offset.toString(16)));
+					offset += 8;
+					rowElement.appendChild(cellElement);
+					cellElement = document.createElement('td');
+					cellElement.appendChild(document.createTextNode(entry.data[0]));
+					rowElement.appendChild(cellElement);
+					stackElement.appendChild(rowElement);
 				}
 			});
 			if (sourceCache.hasOwnProperty(currentFrame.fullname)) {
