@@ -174,29 +174,30 @@ path.edge.jump {
 	</div>
 	<script>
 		var svg = document.getElementById('svg');
-		var originalWidth = svg.clientWidth;
-		var originalHeight = svg.clientHeight;
-		var maxWidth = originalWidth;
-		var maxHeight = originalHeight;
+		var maxWidth = svg.clientWidth;
+		var maxHeight = svg.clientHeight;
 		let viewport = {
 			x: 0,
 			y: 0,
-			width: originalWidth,
-			height: originalHeight,
+			width: svg.clientWidth,
+			height: svg.clientHeight,
 		};
 		var mousedown = false;
 		var mouseanchor = null;
 		svg.addEventListener('wheel', function(ev) {
-			viewport.width = Math.max(originalWidth, viewport.width - ev.wheelDelta);
-			viewport.height = Math.max(originalHeight, viewport.height - ev.wheelDelta);
+			viewport.width = Math.max(svg.clientWidth, viewport.width - ev.wheelDelta);
+			viewport.height = Math.max(svg.clientHeight, viewport.height - ev.wheelDelta);
 			svg.setAttribute('viewBox', viewport.x + ' ' + viewport.y + ' ' + viewport.width + ' ' + viewport.height);
 		});
 		svg.addEventListener('mousemove', function(ev) {
 			if (!mousedown)
 				return;
-			var scale = viewport.width / originalWidth;
-			viewport.x = Math.min(Math.max(0, viewport.x - scale * (ev.offsetX - mouseanchor.x)), maxWidth - originalWidth / scale);
-			viewport.y = Math.min(Math.max(0, viewport.y - scale * (ev.offsetY - mouseanchor.y)), maxHeight - originalWidth / scale);
+			var scale = 1.0;
+			if (svg.clientWidth) {
+				scale = viewport.width / svg.clientWidth;
+			}
+			viewport.x = Math.min(Math.max(0, viewport.x - scale * (ev.offsetX - mouseanchor.x)), maxWidth - svg.clientWidth / scale);
+			viewport.y = Math.min(Math.max(0, viewport.y - scale * (ev.offsetY - mouseanchor.y)), maxHeight - svg.clientWidth / scale);
 			svg.setAttribute('viewBox', viewport.x + ' ' + viewport.y + ' ' + viewport.width + ' ' + viewport.height);
 			mouseanchor = {
 				x: ev.offsetX,
