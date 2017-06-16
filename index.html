@@ -405,10 +405,8 @@ path.edge.jump {
 			assemblyEditor.addLineClass(activeLine, 'wrap', 'CodeMirror-activeline-background');
 			var startAddress = parseInt(insns[0].address.substr(2), 16);
 			var endAddress = parseInt(insns[insns.length - 1].address.substr(2), 16);
-			socketSend({method:'run', command:'-data-read-memory-bytes ' + startAddress + ' ' + (endAddress - startAddress + 32)}).then(function (record){
-				socketSend({method:'disassemble-graph', memory: record.memory[0].contents, startAddress: startAddress, endAddress: endAddress}).then(function (record){
-					renderGraph(record);
-				});
+			socketSend({method:'disassemble-graph', startAddress: startAddress, endAddress: endAddress}).then(function (record){
+				renderGraph(record);
 			});
 		}
 		function onThreadSelected(frame) {
@@ -473,23 +471,21 @@ path.edge.jump {
 		}
 		socket.onmessage = function(event) {
 			var data = JSON.parse(event.data);
-			for (var i = 0; i < data.length; i++) {
-				if (data[i].type == 'console-stream') {
-					appendConsoleNode(data[i].payload, 'console');
-				} else if (data[i].type == 'log-stream') {
-					appendConsoleNode(data[i].payload, 'log');
-				} else if (data[i].type == 'error-stream') {
-					appendConsoleNode(data[i].payload, 'error');
-				} else if (data[i].type == 'notify-async' && data[i]['class'] == 'thread-selected') {
-					onThreadSelected(data[i].output.frame);
-				} else if (data[i].type == 'result') {
-					if (typeof(data[i].token) === 'undefined' || !promiseMapping.hasOwnProperty(data[i].token))
-						 continue;
-					promiseMapping[data[i].token].resolve(data[i].record);
-					delete promiseMapping[data[i].token];
-				} else {
-					console.log(data[i]);
-				}
+			if (data.type == 'console-stream') {
+				appendConsoleNode(data.payload, 'console');
+			} else if (data.type == 'log-stream') {
+				appendConsoleNode(data.payload, 'log');
+			} else if (data.type == 'error-stream') {
+				appendConsoleNode(data.payload, 'error');
+			} else if (data.type == 'notify-async' && data['class'] == 'thread-selected') {
+				onThreadSelected(data.output.frame);
+			} else if (data.type == 'result') {
+				if (typeof(data.token) === 'undefined' || !promiseMapping.hasOwnProperty(data.token))
+					 return;
+				promiseMapping[data.token].resolve(data.record);
+				delete promiseMapping[data.token];
+			} else {
+				console.log(data);
 			}
 		};
 		socket.onerror = function(event) {

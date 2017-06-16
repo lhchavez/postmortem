@@ -92,7 +92,8 @@ class GdbConnection(object):
         ['/usr/bin/gdb', '--nx', '--quiet', '--interpreter=mi',
          '--tty=%s' % os.ttyname(self._pts), binary, core],
         stdout=subprocess.PIPE, stdin=subprocess.PIPE)
-    self._ws.sendMessage(json.dumps(self.readResponse()))
+    for message in self.readResponse():
+      self._ws.sendMessage(json.dumps(message))
     self.send(b'-enable-frame-filters')
 
   def send(self, *args, token=None):
@@ -103,7 +104,7 @@ class GdbConnection(object):
     logging.debug('Wrote %s', payload)
     self._p.stdin.write(payload)
     self._p.stdin.flush()
-    return self.readResponse()
+    yield from self.readResponse()
 
   @staticmethod
   def _parseConst(line, value_idx):
@@ -235,14 +236,12 @@ class GdbConnection(object):
     return result
 
   def readResponse(self):
-    response = []
     while True:
       line = self._p.stdout.readline()
       logging.debug('Read %s', line)
       if not line or line == b'(gdb) \n':
         break
-      response.append(GdbConnection._parseLine(line.rstrip()))
-    return response
+      yield GdbConnection._parseLine(line.rstrip())
 
 
 class GdbServer(WebSocket):
@@ -259,18 +258,27 @@ class GdbServer(WebSocket):
       if 'token' in data:
         token = int(data['token'])
       if data['method'] == 'run':
-        self.sendMessage(json.dumps(self._connection.send(data['command'].encode('utf-8'), token=token)))
+        for message in self._connection.send(data['command'].encode('utf-8'), token=token):
+          self.sendMessage(json.dumps(message))
       elif data['method'] == 'interpreter-exec':
-        self.sendMessage(json.dumps(self._connection.send(b'-interpreter-exec', b'console', data['command'].encode('utf-8'))))
+        for message in self._connection.send(b'-interpreter-exec', b'console', data['command'].encode('utf-8')):
+          self.sendMessage(json.dumps(message))
       elif data['method'] == 'get-source':
         try:
           with open(data['filename'], 'r') as f:
-            self.sendMessage(json.dumps([{'type':'result','record':f.read(),'token':token}]))
+            self.sendMessage(json.dumps({'type':'result','record':f.read(),'token':token}))
         except:
-          self.sendMessage(json.dumps([{'type':'result','record':None,'token':token}]))
+          self.sendMessage(json.dumps({'type':'result','record':None,'token':token}))
       elif data['method'] == 'disassemble-graph':
-        graph = _disassemble(data['memory'], data['startAddress'], data['endAddress'])
-        self.sendMessage(json.dumps([{'type':'result','record':graph,'token':token}]))
+        for message in self._connection.send(b'-data-read-memory-bytes',
+                                             b'0x%x' % data['startAddress'],
+                                             b'%d' % (data['endAddress'] - data['startAddress'] + 32)):
+          if message['type'] == 'result':
+            logging.info('result %s', message)
+            graph = _disassemble(message['record']['memory'][0]['contents'], data['startAddress'], data['endAddress'])
+            self.sendMessage(json.dumps({'type':'result','record':graph,'token':token}))
+          else:
+            self.sendMessage(json.dumps(message))
       else:
         logging.error('unhandled method %s', data)
     except:
