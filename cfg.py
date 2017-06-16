@@ -304,15 +304,15 @@ def main():
   else:
     logging.basicConfig(level=logging.INFO)
 
-  gdb_server = SimpleWebSocketServer('', 8001, GdbServerFactory(args.binary, args.core))
+  gdb_server = SimpleWebSocketServer('localhost', 8001, GdbServerFactory(args.binary, args.core))
   websocket_thread = threading.Thread(target=lambda: gdb_server.serveforever(), daemon=True)
   websocket_thread.start()
 
   socketserver.TCPServer.allow_reuse_address = True
-  http_server = socketserver.TCPServer(('', 8000), http.server.SimpleHTTPRequestHandler)
+  http_server = socketserver.TCPServer(('localhost', 8000), http.server.SimpleHTTPRequestHandler)
   threading.Thread(target=lambda: http_server.serve_forever(), daemon=True).start()
 
-  subprocess.check_call(['/usr/bin/google-chrome-beta', 'http://localhost:8000'])
+  subprocess.check_call(['/usr/bin/xdg-open', 'http://localhost:8000'])
 
   websocket_thread.join()
 
