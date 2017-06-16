@@ -274,7 +274,6 @@ class GdbServer(WebSocket):
                                              b'0x%x' % data['startAddress'],
                                              b'%d' % (data['endAddress'] - data['startAddress'] + 32)):
           if message['type'] == 'result':
-            logging.info('result %s', message)
             graph = _disassemble(message['record']['memory'][0]['contents'], data['startAddress'], data['endAddress'])
             self.sendMessage(json.dumps({'type':'result','record':graph,'token':token}))
           else:

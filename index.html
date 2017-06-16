@@ -133,6 +133,7 @@ path.edge.jump {
 							<path d="M 0 0 L 10 5 L 0 10 z" fill="#895f63" />
 						</marker>
 					</defs>
+					<g class="graph"></g>
 				</svg>
 				<div class="item" id="source-editor"></div>
 				<div class="item" id="assembly-editor"></div>
@@ -235,8 +236,9 @@ path.edge.jump {
 			var blocks = {};
 			let g = new dagre.graphlib.Graph();
 			g.setGraph({});
-			while (svg.lastChild && svg.lastChild.nodeName != 'defs') {
-				svg.removeChild(svg.lastChild);
+			let graphNode = document.querySelector('svg g[class="graph"]');
+			while (graphNode.lastChild) {
+				graphNode.removeChild(graphNode.lastChild);
 			}
 			for (const addr in data) {
 				const block = data[addr];
@@ -281,7 +283,7 @@ path.edge.jump {
 					registerSpan.appendChild(document.createTextNode(ins.op));
 					blockTextElm.appendChild(registerSpan);
 				}
-				svg.appendChild(blockElm);
+				graphNode.appendChild(blockElm);
 				let blockTextBBox = blockElm.getBBox();
 				let rectElm = createSVGNode('rect', {
 					x: blockTextBBox.x - 5,
@@ -323,7 +325,7 @@ path.edge.jump {
 					d: points,
 				});
 				lineElm.setAttribute('class', 'edge ' + edge.type);
-				svg.appendChild(lineElm);
+				graphNode.appendChild(lineElm);
 			});
 			maxWidth = svg.getBBox().width;
 			maxHeight = svg.getBBox().height;
@@ -379,6 +381,9 @@ path.edge.jump {
 		var sourceCache = {};
 		function onSourceReady() {
 			sourceEditor.setValue(sourceCache[currentFrame.fullname]);
+			if (currentFrame.line > sourceEditor.lineCount()) {
+				return;
+			}
 			sourceEditor.scrollIntoView({
 				line: currentFrame.line - 1,
 				ch: 0
@@ -410,7 +415,7 @@ path.edge.jump {
 			});
 		}
 		function onThreadSelected(frame) {
-			if (currentFrame.line) {
+			if (currentFrame.line && currentFrame.line <= sourceEditor.lineCount()) {
 				sourceEditor.removeLineClass(currentFrame.line - 1, 'wrap');
 			}
 			currentFrame = frame;
