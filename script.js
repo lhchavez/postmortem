@@ -8,6 +8,19 @@ function Deferred() {
   Object.freeze(this);
 }
 
+function createSVGNode(type, attributes) {
+  const svgNS = 'http://www.w3.org/2000/svg';
+
+  let node = document.createElementNS(svgNS, type);
+  if (!attributes) {
+    return node;
+  }
+  for (const key in attributes) {
+    node.setAttributeNS(null, key, attributes[key]);
+  }
+  return node;
+}
+
 Prism.languages.assembly = {
   'comment' : /#.*/,
   'immediate' : {
@@ -31,76 +44,61 @@ Prism.languages.assembly = {
   'operator' : /[(),]/,
 };
 
-function main() {
-  var svg = document.getElementById('svg');
-  var maxWidth = svg.clientWidth;
-  var maxHeight = svg.clientHeight;
-  let viewport = {
-    x : 0,
-    y : 0,
-    width : svg.clientWidth,
-    height : svg.clientHeight,
-  };
-  var mousedown = false;
-  var mouseanchor = null;
-  svg.addEventListener('wheel', function(ev) {
-    viewport.width = Math.max(svg.clientWidth, viewport.width - ev.wheelDelta);
-    viewport.height =
-        Math.max(svg.clientHeight, viewport.height - ev.wheelDelta);
-    svg.setAttribute('viewBox',
-                     viewport.x + ' ' + viewport.y + ' ' + viewport.width +
-                         ' ' + viewport.height);
-  });
-  svg.addEventListener('mousemove', function(ev) {
-    if (!mousedown)
+class Graph {
+  constructor(svg) {
+    this.svg = svg;
+    this.visible = false;
+    this.maxWidth = this.svg.clientWidth;
+    this.maxHeight = this.svg.clientHeight;
+    this.viewport = {
+      x : 0,
+      y : 0,
+      width : this.svg.clientWidth,
+      height : this.svg.clientHeight,
+    };
+    this.mousedown = false;
+    this.mouseanchor = null;
+    this.svg.addEventListener('wheel', ev => this.__onWheel(ev));
+    this.svg.addEventListener('mousemove', ev => this.__onMouseMove(ev));
+    this.svg.addEventListener('mousedown', ev => this.__onMouseDown(ev));
+    this.svg.addEventListener('mouseup', ev => this.__onMouseUp(ev));
+  }
+
+  show() {
+    this.svg.style.display = 'block';
+    this.visible = true;
+    this.maxWidth = this.svg.clientWidth;
+    this.maxHeight = this.svg.clientHeight;
+    this.viewport = {
+      x : 0,
+      y : 0,
+      width : this.svg.clientWidth,
+      height : this.svg.clientHeight,
+    };
+		this.__render(this.data);
+  }
+
+  hide() {
+    this.svg.style.display = 'none';
+    this.visible = false;
+  }
+
+  render(data) {
+		this.data = data;
+		this.dirty = true;
+		if (!this.visible) {
+			return;
+		}
+		this.__render(this.data);
+  }
+
+  __render(data) {
+    if (!this.dirty) {
       return;
-    var scale = 1.0;
-    if (svg.clientWidth) {
-      scale = viewport.width / svg.clientWidth;
-    }
-    viewport.x =
-        Math.min(Math.max(0, viewport.x - scale * (ev.offsetX - mouseanchor.x)),
-                 maxWidth - svg.clientWidth / scale);
-    viewport.y =
-        Math.min(Math.max(0, viewport.y - scale * (ev.offsetY - mouseanchor.y)),
-                 maxHeight - svg.clientWidth / scale);
-    svg.setAttribute('viewBox',
-                     viewport.x + ' ' + viewport.y + ' ' + viewport.width +
-                         ' ' + viewport.height);
-    mouseanchor = {
-      x : ev.offsetX,
-      y : ev.offsetY,
-    };
-  });
-  svg.addEventListener('mousedown', function(ev) {
-    ev.preventDefault();
-    mousedown = true;
-    mouseanchor = {
-      x : ev.offsetX,
-      y : ev.offsetY,
-    };
-  });
-  svg.addEventListener('mouseup', function(ev) {
-    ev.preventDefault();
-    mousedown = false;
-    mouseanchor = null;
-  });
-  var svgNS = 'http://www.w3.org/2000/svg';
-  var xlinkNS = 'http://www.w3.org/1999/xlink';
-
-  function createSVGNode(type, attributes) {
-    let node = document.createElementNS(svgNS, type);
-    if (attributes) {
-      for (const key in attributes) {
-        node.setAttributeNS(null, key, attributes[key]);
-      }
-      }
-    return node;
-    }
-
-  function renderGraph(data) {
-    var offsetY = 20;
-    var blocks = {};
+		}
+		this.dirty = false;
+    let offsetY = 20;
+    let blocks = {};
     let g = new dagre.graphlib.Graph();
     g.setGraph({});
     let graphNode = document.querySelector('svg g[class="graph"]');
@@ -112,19 +110,18 @@ function main() {
       let blockElm = createSVGNode('g');
       let blockTextElm = createSVGNode('text');
       blockElm.appendChild(blockTextElm);
-      var first = true;
-      var addressWidth = 0;
-      var mnemonicWidth = 0;
-      var opWidth = 0;
-      for (var i = 0; i < block.instructions.length; i++) {
-        var ins = block.instructions[i];
+      let addressWidth = 0;
+      let mnemonicWidth = 0;
+      let opWidth = 0;
+      for (let i = 0; i < block.instructions.length; i++) {
+        let ins = block.instructions[i];
 
         addressWidth = Math.max(addressWidth, ins.address.length);
         mnemonicWidth = Math.max(mnemonicWidth, ins.mnemonic.length);
         opWidth = Math.max(opWidth, ins.op.length);
         }
-      for (var i = 0; i < block.instructions.length; i++) {
-        var ins = block.instructions[i];
+      for (let i = 0; i < block.instructions.length; i++) {
+        let ins = block.instructions[i];
 
         let addressSpan = createSVGNode('tspan', {
           x : 0,
@@ -167,23 +164,23 @@ function main() {
         element : blockElm,
       };
       g.setNode(addr, blocks[addr]);
-      for (var i = 0; i < block.edges.length; i++) {
+      for (let i = 0; i < block.edges.length; i++) {
         g.setEdge(addr, block.edges[i].target, {type : block.edges[i].type});
       }
     }
 
     dagre.layout(g);
     g.nodes().forEach(function(v) {
-      var block = g.node(v);
+      let block = g.node(v);
       block.element.setAttributeNS(null, 'transform',
                                    'translate(' +
                                        (5 + block.x - block.width / 2) + ', ' +
                                        (18 + block.y - block.height / 2) + ')');
     });
     g.edges().forEach(function(e) {
-      var edge = g.edge(e);
-      var points = '';
-      for (var i = 0; i < edge.points.length; i++) {
+      let edge = g.edge(e);
+      let points = '';
+      for (let i = 0; i < edge.points.length; i++) {
         if (i == 0) {
           points += 'M';
         } else {
@@ -191,19 +188,69 @@ function main() {
         }
         points += edge.points[i].x + ',' + edge.points[i].y;
         }
-      var lineElm = createSVGNode('path', {
+      let lineElm = createSVGNode('path', {
         d : points,
       });
       lineElm.setAttribute('class', 'edge ' + edge.type);
       graphNode.appendChild(lineElm);
     });
-    maxWidth = svg.getBBox().width;
-    maxHeight = svg.getBBox().height;
+    this.maxWidth = this.svg.getBBox().width;
+    this.maxHeight = this.svg.getBBox().height;
+  }
+
+  __onWheel(ev) {
+    this.viewport.width = Math.max(this.svg.clientWidth, this.viewport.width - ev.wheelDelta);
+    this.viewport.height =
+        Math.max(this.svg.clientHeight, this.viewport.height - ev.wheelDelta);
+    this.svg.setAttribute('viewBox',
+                     this.viewport.x + ' ' + this.viewport.y + ' ' + this.viewport.width +
+                         ' ' + this.viewport.height);
+  }
+
+  __onMouseMove(ev) {
+    if (!this.mousedown)
+      return;
+    let scale = 1.0;
+    if (this.svg.clientWidth) {
+      scale = this.viewport.width / this.svg.clientWidth;
     }
+    this.viewport.x =
+        Math.min(Math.max(0, this.viewport.x - scale * (ev.offsetX - this.mouseanchor.x)),
+                 this.maxWidth - this.svg.clientWidth / scale);
+    this.viewport.y =
+        Math.min(Math.max(0, this.viewport.y - scale * (ev.offsetY - this.mouseanchor.y)),
+                 this.maxHeight - this.svg.clientWidth / scale);
+    this.svg.setAttribute('viewBox',
+                     this.viewport.x + ' ' + this.viewport.y + ' ' + this.viewport.width +
+                         ' ' + this.viewport.height);
+    this.mouseanchor = {
+      x : ev.offsetX,
+      y : ev.offsetY,
+    };
+  }
+
+  __onMouseDown(ev) {
+    ev.preventDefault();
+    this.mousedown = true;
+    this.mouseanchor = {
+      x : ev.offsetX,
+      y : ev.offsetY,
+    };
+  }
+
+  __onMouseUp(ev) {
+    ev.preventDefault();
+    this.mousedown = false;
+    this.mouseanchor = null;
+  }
+};
+
+function main() {
+  let graph = new Graph(document.getElementById('svg'));
 
   function appendConsoleNode(contents, className) {
-    var consoleDiv = document.querySelector('.gdb-console');
-    var node = document.createElement('span');
+    let consoleDiv = document.querySelector('.gdb-console');
+    let node = document.createElement('span');
     node.className = className;
     node.appendChild(document.createTextNode(contents));
     consoleDiv.appendChild(node);
@@ -213,14 +260,14 @@ function main() {
   let sourceEditor = document.querySelector('#source-editor>pre>code');
   let assemblyEditor = document.querySelector('#assembly-editor>pre>code');
 
-  var socket = new WebSocket('ws://localhost:8001');
-  var currentFrame = {
+  let socket = new WebSocket('ws://localhost:8001');
+  let currentFrame = {
     fullname : null,
     line : null,
     address : null,
   };
-  var payloadCount = 0;
-  var promiseMapping = {};
+  let payloadCount = 0;
+  let promiseMapping = {};
 
   function socketSend(payload) {
     payload.token = ++payloadCount;
@@ -228,7 +275,7 @@ function main() {
     promiseMapping[payload.token] = new Deferred();
     return promiseMapping[payload.token].promise;
     }
-  var sourceCache = {};
+  let sourceCache = {};
   function onSourceReady() {
     sourceEditor.innerText = sourceCache[currentFrame.fullname];
     document.querySelector('#source-editor>pre')
@@ -237,9 +284,9 @@ function main() {
     document.querySelector('#source-editor .line-highlight').scrollIntoView();
     }
   function onAssemblyReady(currentAddress, insns) {
-    var contents = '';
-    var activeLine = 0;
-    for (var i = 0; i < insns.length; i++) {
+    let contents = '';
+    let activeLine = 0;
+    for (let i = 0; i < insns.length; i++) {
       contents += insns[i].address + ' ' + insns[i].inst + '\n';
       if (insns[i].address == currentAddress) {
         activeLine = i;
@@ -250,17 +297,17 @@ function main() {
         .setAttribute('data-line', activeLine + 1);
     Prism.highlightElement(assemblyEditor);
     document.querySelector('#assembly-editor .line-highlight').scrollIntoView();
-    var startAddress = parseInt(insns[0].address.substr(2), 16);
-    var endAddress = parseInt(insns[insns.length - 1].address.substr(2), 16);
+    let startAddress = parseInt(insns[0].address.substr(2), 16);
+    let endAddress = parseInt(insns[insns.length - 1].address.substr(2), 16);
     socketSend({
       method : 'disassemble-graph',
       startAddress : startAddress,
       endAddress : endAddress
-    }).then(function(record) { renderGraph(record); });
+    }).then(function(record) { graph.render(record); });
     }
   function onThreadSelected(frame) {
     currentFrame = frame;
-    var cmd = '-data-disassemble -f ' + currentFrame.fullname + ' -l ' +
+    let cmd = '-data-disassemble -f ' + currentFrame.fullname + ' -l ' +
               currentFrame.line + ' -n -1 -- 0';
     socketSend({method : 'run', 'command' : cmd}).then(function(record) {
       onAssemblyReady(currentFrame.addr, record.asm_insns);
@@ -269,17 +316,17 @@ function main() {
       method : 'run',
       'command' : '-data-list-register-values --skip-unavailable x'
     }).then(function(record) {
-      var registersElement = document.querySelector('#registers tbody');
+      let registersElement = document.querySelector('#registers tbody');
       while (registersElement.firstChild) {
         registersElement.removeChild(registersElement.firstChild);
         }
-      for (var i = 0; i < record['register-values'].length; i++) {
-        var reg = record['register-values'][i];
+      for (let i = 0; i < record['register-values'].length; i++) {
+        let reg = record['register-values'][i];
         if (parseInt(reg.number) > registerNames.length) {
           continue;
           }
-        var rowElement = document.createElement('tr');
-        var cellElement = document.createElement('td');
+        let rowElement = document.createElement('tr');
+        let cellElement = document.createElement('td');
         cellElement.appendChild(
             document.createTextNode(registerNames[parseInt(reg.number)]));
         rowElement.appendChild(cellElement);
@@ -293,14 +340,14 @@ function main() {
       method : 'run',
       'command' : '-data-read-memory $rsp-128 x 8 100 1'
     }).then(function(record) {
-      var stackElement = document.querySelector('#stack tbody');
+      let stackElement = document.querySelector('#stack tbody');
       while (stackElement.firstChild) {
         stackElement.removeChild(stackElement.firstChild);
         }
       let offset = -128;
       for (let entry of record['memory']) {
-        var rowElement = document.createElement('tr');
-        var cellElement = document.createElement('td');
+        let rowElement = document.createElement('tr');
+        let cellElement = document.createElement('td');
         cellElement.appendChild(document.createTextNode(entry.addr));
         rowElement.appendChild(cellElement);
         cellElement = document.createElement('td');
@@ -325,7 +372,7 @@ function main() {
         });
   }
   socket.onmessage = function(event) {
-    var data = JSON.parse(event.data);
+    let data = JSON.parse(event.data);
     if (data.type == 'console-stream') {
       appendConsoleNode(data.payload, 'console');
     } else if (data.type == 'log-stream') {
@@ -346,14 +393,14 @@ function main() {
     }
   };
   socket.onerror = function(event) { console.error(event); };
-  var registerNames = [];
+  let registerNames = [];
   socket.onopen = function(event) {
     socketSend({method : 'run', 'command' : '-data-list-register-names'})
         .then(function(record) {
           Array.prototype.push.apply(registerNames, record['register-names']);
           socketSend({method : 'run', 'command' : '-thread-info'})
               .then(function(record) {
-                for (var i = 0; i < record.threads.length; ++i) {
+                for (let i = 0; i < record.threads.length; ++i) {
                   if (record.threads[i].id != record['current-thread-id'])
                     continue;
                   onThreadSelected(record.threads[i].frame);
@@ -362,12 +409,12 @@ function main() {
         });
   };
 
-  var cmdHistory = [];
-  var cmdHistoryIdx = 0;
+  let cmdHistory = [];
+  let cmdHistoryIdx = 0;
   document.querySelector('#gdb-console')
       .addEventListener('submit', function(ev) {
         ev.preventDefault();
-        var cmd = document.querySelector('#gdb-console input').value;
+        let cmd = document.querySelector('#gdb-console input').value;
         if (cmd) {
           cmdHistory.push(cmd);
           cmdHistoryIdx = cmdHistory.length;
@@ -403,10 +450,10 @@ function main() {
   document.querySelector('#gdb-console select[name="view"]')
       .addEventListener('change', function(ev) {
         if (ev.target.value == 'graph') {
-          document.getElementById('svg').style.display = 'block';
+          graph.show();
           document.getElementById('source-editor').style.display = 'none';
         } else {
-          document.getElementById('svg').style.display = 'none';
+          graph.hide();
           document.getElementById('source-editor').style.display = 'block';
         }
       });
