@@ -1,0 +1,130 @@
+:root {
+	--background-color: #1d1f21;
+	--foreground-color: #c5c8c6;
+	--border-color: #2d3c46;
+	--selection-color: #de935f;
+
+	--font: 9pt "Luculent Regular", monospace;
+}
+html, body {
+	padding: 0;
+	margin: 0;
+	width: 100%;
+	height: 100%;
+	background: var(--background-color);
+	color: var(--foreground-color);
+	font: var(--font);
+}
+input[type="text"], select {
+	background: var(--background-color);
+	color: var(--foreground-color);
+	font: var(--font);
+	border: 1px solid var(--border-color);
+}
+input[type="text"]:focus, select:focus {
+	border: 1px solid var(--selection-color);
+	outline: 0 none;
+}
+
+/* Graph */
+svg {
+	display: none;
+}
+rect.block {
+	fill: #4a4a4a;
+	stroke: #5f5f5f;
+}
+text {
+}
+tspan.address {
+	fill: #98c99b;
+}
+tspan.mnemonic {
+	fill: #fff;
+}
+tspan.register {
+	fill: #ebca8a;
+}
+path.edge {
+	fill: none;
+	stroke-width: 2;
+}
+path.edge.unconditional {
+	stroke: #77c5d1;
+	marker-end: url(#TriangleUnconditional);
+}
+path.edge.fallthrough {
+	stroke: #98c99b;
+	marker-end: url(#TriangleFallthrough);
+}
+path.edge.jump {
+	stroke: #895f63;
+	marker-end: url(#TriangleJump);
+}
+
+/* Layout */
+.container {
+	display: flex;
+	position: relative;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+}
+.container-column {
+	flex-direction: column;
+}
+.container-row {
+	flex-direction: row;
+}
+.container-column .item, container-row .item {
+	flex: 1 100%;
+}
+.navbar {
+	flex: 1 500px;
+}
+
+/* Editors */
+.CodeMirror {
+	width: 100%;
+	height: 100%;
+}
+.right {
+	text-align: right;
+}
+
+.gdb-console {
+	width: 100%;
+	height: 200px;
+	min-height: 200px;
+	max-height: 200px;
+	overflow-y: auto;
+	white-space: pre;
+	background: #1d1f21;
+}
+.gdb-console .console {
+	color: #c5c8c6;
+}
+.gdb-console .log {
+	color: #969896;
+}
+.gdb-console .error {
+	color: #cc6666;
+}
+.gdb-console .prompt {
+	color: #373b41;
+}
+#gdb-console {
+	background: #373b41;
+}
+
+#registers, #stack {
+	font: var(--font);
+	overflow: auto;
+	background: #1d1f21;
+	color: #c5c8c6;
+}
+#registers table td, #stack table td {
+	overflow: none;
+	text-overflow: ellipsis;
+}
+
