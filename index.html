@@ -1,14 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<title>postmortem</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.26.0/codemirror.min.js"></script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.26.0/codemirror.min.css" />
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.26.0/theme/tomorrow-night-bright.min.css" />
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.26.0/mode/clike/clike.min.js"></script>
-<script src="https://cdn.rawgit.com/cpettitt/dagre/v0.7.4/dist/dagre.min.js"></script>
-<link rel="stylesheet" href="style.css" />
-<script src="script.js"></script>
+	<title>postmortem</title>
+	<script src="https://cdn.rawgit.com/cpettitt/dagre/v0.7.4/dist/dagre.min.js"></script>
+	<script src="prism.js" data-manual></script>
+	<link rel="stylesheet" href="prism.css" />
+
+	<script src="script.js"></script>
+	<link rel="stylesheet" href="style.css" />
 </head>
 <body>
 	<div class="container container-column">
@@ -32,8 +31,12 @@
 					</defs>
 					<g class="graph"></g>
 				</svg>
-				<div class="item" id="source-editor"></div>
-				<div class="item" id="assembly-editor"></div>
+				<div class="item" id="source-editor">
+					<pre class="line-numbers"><code class="language-cpp"></code></pre>
+				</div>
+				<div class="item" id="assembly-editor">
+					<pre><code class="language-assembly"></code></pre>
+				</div>
 			</div>
 			<div class="navbar container container-column">
 				<div class="item" id="registers">

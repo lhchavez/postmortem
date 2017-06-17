@@ -1,3 +1,36 @@
+function Deferred() {
+  this.resolve = null;
+  this.reject = null;
+  this.promise = new Promise(function(resolve, reject) {
+    this.resolve = resolve;
+    this.reject = reject;
+  }.bind(this));
+  Object.freeze(this);
+}
+
+Prism.languages.assembly = {
+  'comment' : /#.*/,
+  'immediate' : {
+    pattern : /\$0x[0-9a-fA-F]+/,
+    alias : 'number',
+  },
+  'register' : {
+    pattern : /%[a-z0-9]+/,
+    alias : 'function',
+  },
+  'address' : {
+    pattern : /-?0x[0-9a-fA-F]+/,
+    alias : 'string',
+  },
+  'symbol' : /<.*>/,
+  'opcode' : {
+    pattern : /[a-z][a-z0-9.]+/,
+    alias : 'keyword',
+  },
+  'number' : /[0-9]+/,
+  'operator' : /[(),]/,
+};
+
 function main() {
   var svg = document.getElementById('svg');
   var maxWidth = svg.clientWidth;
@@ -177,19 +210,8 @@ function main() {
     node.scrollIntoView();
     }
 
-  let sourceEditor = CodeMirror(document.getElementById('source-editor'), {
-    mode : 'clike',
-    lineNumbers : true,
-    readOnly : true,
-    theme : 'tomorrow-night-bright',
-  });
-  let assemblyEditor = CodeMirror(document.getElementById('assembly-editor'), {
-    value : 'Assembly!',
-    mode : 'text/plain',
-    lineNumbers : true,
-    readOnly : true,
-    theme : 'tomorrow-night-bright',
-  });
+  let sourceEditor = document.querySelector('#source-editor>pre>code');
+  let assemblyEditor = document.querySelector('#assembly-editor>pre>code');
 
   var socket = new WebSocket('ws://localhost:8001');
   var currentFrame = {
@@ -200,15 +222,6 @@ function main() {
   var payloadCount = 0;
   var promiseMapping = {};
 
-  function Deferred() {
-    this.resolve = null;
-    this.reject = null;
-    this.promise = new Promise(function(resolve, reject) {
-      this.resolve = resolve;
-      this.reject = reject;
-    }.bind(this));
-    Object.freeze(this);
-    }
   function socketSend(payload) {
     payload.token = ++payloadCount;
     socket.send(JSON.stringify(payload));
@@ -217,13 +230,11 @@ function main() {
     }
   var sourceCache = {};
   function onSourceReady() {
-    sourceEditor.setValue(sourceCache[currentFrame.fullname]);
-    if (currentFrame.line > sourceEditor.lineCount()) {
-      return;
-    }
-    sourceEditor.scrollIntoView({line : currentFrame.line - 1, ch : 0}, 100);
-    sourceEditor.addLineClass(currentFrame.line - 1, 'wrap',
-                              'CodeMirror-activeline-background');
+    sourceEditor.innerText = sourceCache[currentFrame.fullname];
+    document.querySelector('#source-editor>pre')
+        .setAttribute('data-line', currentFrame.line);
+    Prism.highlightElement(sourceEditor);
+    document.querySelector('#source-editor .line-highlight').scrollIntoView();
     }
   function onAssemblyReady(currentAddress, insns) {
     var contents = '';
@@ -234,13 +245,11 @@ function main() {
         activeLine = i;
       }
     }
-    assemblyEditor.eachLine(function(line) {
-      assemblyEditor.removeLineClass(line, 'wrap');
-    });
-    assemblyEditor.setValue(contents);
-    assemblyEditor.scrollIntoView({line : activeLine, ch : 0}, 100);
-    assemblyEditor.addLineClass(activeLine, 'wrap',
-                                'CodeMirror-activeline-background');
+    assemblyEditor.innerText = contents;
+    document.querySelector('#assembly-editor>pre')
+        .setAttribute('data-line', activeLine + 1);
+    Prism.highlightElement(assemblyEditor);
+    document.querySelector('#assembly-editor .line-highlight').scrollIntoView();
     var startAddress = parseInt(insns[0].address.substr(2), 16);
     var endAddress = parseInt(insns[insns.length - 1].address.substr(2), 16);
     socketSend({
@@ -250,9 +259,6 @@ function main() {
     }).then(function(record) { renderGraph(record); });
     }
   function onThreadSelected(frame) {
-    if (currentFrame.line && currentFrame.line <= sourceEditor.lineCount()) {
-      sourceEditor.removeLineClass(currentFrame.line - 1, 'wrap');
-    }
     currentFrame = frame;
     var cmd = '-data-disassemble -f ' + currentFrame.fullname + ' -l ' +
               currentFrame.line + ' -n -1 -- 0';

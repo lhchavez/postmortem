@@ -128,3 +128,13 @@ path.edge.jump {
 	text-overflow: ellipsis;
 }
 
+#source-editor, #assembly-editor {
+	overflow: auto;
+}
+#source-editor>pre,
+#source-editor>pre>code,
+#assembly-editor>pre,
+#assembly-editor>pre>code {
+	height: 100%;
+	margin: 0;
+}
