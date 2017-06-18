@@ -34,8 +34,6 @@ rect.block {
 	fill: #4a4a4a;
 	stroke: #5f5f5f;
 }
-text {
-}
 tspan.address {
 	fill: #98c99b;
 }
@@ -60,6 +58,16 @@ path.edge.fallthrough {
 path.edge.jump {
 	stroke: #895f63;
 	marker-end: url(#TriangleJump);
+}
+#MiniView rect.background {
+	fill: #000000;
+	stroke: #000000;
+	stroke-width: 2;
+}
+#MiniView rect.viewport {
+	fill: #fff;
+	stroke: #fff;
+	stroke-width: 2;
 }
 
 /* Layout */

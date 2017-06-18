@@ -52,11 +52,11 @@ class Graph {
     this.visible = false;
     this.maxWidth = this.svg.clientWidth;
     this.maxHeight = this.svg.clientHeight;
+    this.miniViewScale = 1.0;
     this.viewport = {
       x: 0,
       y: 0,
-      width: this.svg.clientWidth,
-      height: this.svg.clientHeight,
+      scale: 1.0,
     };
     this.mousedown = false;
     this.mouseanchor = null;
@@ -74,8 +74,7 @@ class Graph {
     this.viewport = {
       x: 0,
       y: 0,
-      width: this.svg.clientWidth,
-      height: this.svg.clientHeight,
+      scale: 1.0,
     };
     this.__render(this.data);
   }
@@ -105,7 +104,7 @@ class Graph {
     g.setGraph({
       ranker: 'tight-tree',
     });
-    let graphNode = document.querySelector('svg g[class="graph"]');
+    let graphNode = document.querySelector('#ProgramControlFlowGraph');
     while (graphNode.lastChild) {
       graphNode.removeChild(graphNode.lastChild);
     }
@@ -203,55 +202,98 @@ class Graph {
       lineElm.setAttribute('class', 'edge ' + edge.type);
       graphNode.appendChild(lineElm);
     });
-    this.maxWidth = this.svg.getBBox().width;
-    this.maxHeight = this.svg.getBBox().height;
+    this.maxWidth = graphNode.getBBox().width;
+    this.maxHeight = graphNode.getBBox().height;
+
+    // Update miniview.
+    const maxMiniViewSize = 200;
+    this.miniViewScale = this.maxWidth > this.maxHeight
+      ? maxMiniViewSize / this.maxWidth
+      : maxMiniViewSize / this.maxHeight;
+    let miniViewWidth = this.maxWidth * this.miniViewScale;
+    let miniViewHeight = this.maxHeight * this.miniViewScale;
+    let miniViewRect = this.svg.querySelector('#MiniView rect.background');
+    miniViewRect.setAttribute('x', this.svg.clientWidth - miniViewWidth - 22);
+    miniViewRect.setAttribute('y', this.svg.clientHeight - miniViewHeight - 22);
+    miniViewRect.setAttribute('width', miniViewWidth + 22);
+    miniViewRect.setAttribute('height', miniViewHeight + 22);
+    this.svg
+      .querySelector('#MiniView use')
+      .setAttribute(
+        'transform',
+        'translate(' +
+          (this.svg.clientWidth - miniViewWidth - 12) +
+          ' ' +
+          (this.svg.clientHeight - miniViewHeight - 12) +
+          '),scale(' +
+          this.miniViewScale +
+          ' ' +
+          this.miniViewScale +
+          ')'
+      );
+    this.viewport.x = 0;
+    this.viewport.y = 0;
+    this.viewport.scale = Math.max(
+      this.svg.clientWidth / this.maxWidth,
+      this.svg.clientHeight / this.maxHeight,
+      1.0
+    );
+    this.__updateViewBox();
   }
 
   __onWheel(ev) {
-    this.viewport.width = Math.max(
-      this.svg.clientWidth,
-      this.viewport.width - ev.wheelDelta
+    let oldScale = this.viewport.scale;
+    this.viewport.scale = Math.max(
+      this.svg.clientWidth / this.maxWidth,
+      this.svg.clientHeight / this.maxHeight,
+      Math.min(
+        this.viewport.scale + ev.wheelDelta / 1200.0,
+        1.0
+      )
     );
-    this.viewport.height = Math.max(
-      this.svg.clientHeight,
-      this.viewport.height - ev.wheelDelta
+    if (oldScale == this.viewport.scale) {
+      return;
+    }
+    this.viewport.x = Math.max(
+      0,
+      Math.min(
+        this.viewport.x +
+          ev.offsetX / oldScale -
+          ev.offsetX / this.viewport.scale,
+        this.maxWidth - this.svg.clientWidth / this.viewport.scale
+      )
     );
-    this.svg.setAttribute(
-      'viewBox',
-      this.viewport.x +
-        ' ' +
+    this.viewport.y = Math.max(
+      0,
+      Math.min(
         this.viewport.y +
-        ' ' +
-        this.viewport.width +
-        ' ' +
-        this.viewport.height
+          ev.offsetY / oldScale -
+          ev.offsetY / this.viewport.scale,
+        this.maxHeight - this.svg.clientHeight / this.viewport.scale
+      )
     );
+    this.__updateViewBox();
   }
 
   __onMouseMove(ev) {
     if (!this.mousedown) return;
-    let scale = 1.0;
-    if (this.svg.clientWidth) {
-      scale = this.viewport.width / this.svg.clientWidth;
-    }
-    this.viewport.x = Math.min(
-      Math.max(0, this.viewport.x - scale * (ev.offsetX - this.mouseanchor.x)),
-      this.maxWidth - this.svg.clientWidth / scale
+    this.viewport.x = Math.max(
+      0,
+      Math.min(
+        this.viewport.x -
+          (ev.offsetX - this.mouseanchor.x) / this.viewport.scale,
+        this.maxWidth - this.svg.clientWidth / this.viewport.scale
+      )
     );
-    this.viewport.y = Math.min(
-      Math.max(0, this.viewport.y - scale * (ev.offsetY - this.mouseanchor.y)),
-      this.maxHeight - this.svg.clientWidth / scale
+    this.viewport.y = Math.max(
+      0,
+      Math.min(
+        this.viewport.y -
+          (ev.offsetY - this.mouseanchor.y) / this.viewport.scale,
+        this.maxHeight - this.svg.clientHeight / this.viewport.scale
+      )
     );
-    this.svg.setAttribute(
-      'viewBox',
-      this.viewport.x +
-        ' ' +
-        this.viewport.y +
-        ' ' +
-        this.viewport.width +
-        ' ' +
-        this.viewport.height
-    );
+    this.__updateViewBox();
     this.mouseanchor = {
       x: ev.offsetX,
       y: ev.offsetY,
@@ -271,6 +313,44 @@ class Graph {
     ev.preventDefault();
     this.mousedown = false;
     this.mouseanchor = null;
+  }
+
+  __updateViewBox() {
+    this.svg
+      .querySelector('#MainView')
+      .setAttribute(
+        'transform',
+        'translate(' +
+          -this.viewport.x * this.viewport.scale +
+          ', ' +
+          -this.viewport.y * this.viewport.scale +
+          '),scale(' +
+          this.viewport.scale +
+          ' ' +
+          this.viewport.scale +
+          ')'
+      );
+    let miniViewRect = this.svg.querySelector('#MiniView rect.viewport');
+    let miniViewOffsetX =
+      this.svg.clientWidth - this.maxWidth * this.miniViewScale - 12;
+    let miniViewOffsetY =
+      this.svg.clientHeight - this.maxHeight * this.miniViewScale - 12;
+    let miniViewViewportWidth =
+      Math.min(this.svg.clientWidth / this.viewport.scale, this.maxWidth) *
+      this.miniViewScale;
+    let miniViewViewportHeight =
+      Math.min(this.svg.clientHeight / this.viewport.scale, this.maxHeight) *
+      this.miniViewScale;
+    miniViewRect.setAttribute(
+      'x',
+      miniViewOffsetX + this.viewport.x * this.miniViewScale
+    );
+    miniViewRect.setAttribute(
+      'y',
+      miniViewOffsetY + this.viewport.y * this.miniViewScale
+    );
+    miniViewRect.setAttribute('width', miniViewViewportWidth);
+    miniViewRect.setAttribute('height', miniViewViewportHeight);
   }
 }
 
@@ -598,17 +678,36 @@ function main() {
       }
     });
 
+  function setView(value) {
+    let viewElement = document.querySelector(
+      '#gdb-console select[name="view"]'
+    );
+    if (viewElement.value != value) {
+      viewElement.value = value;
+    }
+    if (value == 'graph') {
+      graph.show();
+      document.getElementById('source-editor').style.display = 'none';
+    } else {
+      graph.hide();
+      document.getElementById('source-editor').style.display = 'block';
+    }
+    if (value == preferences.view) {
+      return;
+    }
+    preferences.view = value;
+    window.localStorage.setItem('preferences', JSON.stringify(preferences));
+  }
+
   document
     .querySelector('#gdb-console select[name="view"]')
-    .addEventListener('change', function(ev) {
-      if (ev.target.value == 'graph') {
-        graph.show();
-        document.getElementById('source-editor').style.display = 'none';
-      } else {
-        graph.hide();
-        document.getElementById('source-editor').style.display = 'block';
-      }
-    });
+    .addEventListener('change', ev => setView(ev.target.value));
+
+  // Restore preferences.
+  let preferences = JSON.parse(
+    window.localStorage.getItem('preferences') || '{"view":"source"}'
+  );
+  setView(preferences.view);
 }
 
 document.addEventListener('DOMContentLoaded', main, false);

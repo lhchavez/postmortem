@@ -28,8 +28,14 @@
 										 markerWidth="6" markerHeight="6" orient="auto">
 							<path d="M 0 0 L 10 5 L 0 10 z" fill="#895f63" />
 						</marker>
+						<g id="ProgramControlFlowGraph"></g>
 					</defs>
-					<g class="graph"></g>
+					<use id="MainView" href="#ProgramControlFlowGraph" x="0" y="0" viewBox="0 0 500 500"/>
+					<g id="MiniView" opacity="0.5">
+						<rect class="background" fill-opacity="0.2"/>
+						<use href="#ProgramControlFlowGraph"/>
+						<rect class="viewport" fill-opacity="0.2"/>
+					</g>
 				</svg>
 				<div class="item" id="source-editor">
 					<pre class="line-numbers"><code class="language-cpp"></code></pre>
