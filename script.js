@@ -53,6 +53,7 @@ class Graph {
     this.maxWidth = this.svg.clientWidth;
     this.maxHeight = this.svg.clientHeight;
     this.miniViewScale = 1.0;
+    this.highlightedAddress = null;
     this.viewport = {
       x: 0,
       y: 0,
@@ -64,19 +65,26 @@ class Graph {
     this.svg.addEventListener('mousemove', ev => this.__onMouseMove(ev));
     this.svg.addEventListener('mousedown', ev => this.__onMouseDown(ev));
     this.svg.addEventListener('mouseup', ev => this.__onMouseUp(ev));
+    this.instructionSpans = {};
   }
 
   show() {
     this.svg.style.display = 'block';
-    this.visible = true;
-    this.maxWidth = this.svg.clientWidth;
-    this.maxHeight = this.svg.clientHeight;
-    this.viewport = {
-      x: 0,
-      y: 0,
-      scale: 1.0,
-    };
-    this.__render(this.data);
+    window.requestAnimationFrame(() => {
+      this.visible = true;
+      this.maxWidth = this.svg.clientWidth;
+      this.maxHeight = this.svg.clientHeight;
+      this.viewport = {
+        x: 0,
+        y: 0,
+        scale: 1.0,
+      };
+      this.__render(this.data);
+      if (this.highlightedAddress) {
+        this.__highlight(this.highlightedAddress);
+        this.__scrollIntoView(this.highlightedAddress);
+      }
+    });
   }
 
   hide() {
@@ -87,10 +95,26 @@ class Graph {
   render(data) {
     this.data = data;
     this.dirty = true;
+    this.highlightedAddress = null;
     if (!this.visible) {
       return;
     }
     this.__render(this.data);
+  }
+
+  highlight(address) {
+    this.highlightedAddress = address;
+    if (this.dirty) {
+      return;
+    }
+    this.__highlight(this.highlightedAddress);
+  }
+
+  scrollIntoView(address) {
+    if (!this.visible) {
+      return;
+    }
+    this.__scrollIntoView(address);
   }
 
   __render(data) {
@@ -108,6 +132,7 @@ class Graph {
     while (graphNode.lastChild) {
       graphNode.removeChild(graphNode.lastChild);
     }
+    this.instructionSpans = {};
     for (const addr in data) {
       const block = data[addr];
       let blockElm = createSVGNode('g');
@@ -126,29 +151,33 @@ class Graph {
       for (let i = 0; i < block.instructions.length; i++) {
         let ins = block.instructions[i];
 
-        let addressSpan = createSVGNode('tspan', {
+        let insSpan = createSVGNode('tspan', {
           x: 0,
           y: i + 'em',
         });
+        insSpan.setAttribute('class', 'instruction');
+        this.instructionSpans[parseInt(ins.address, 16)] = insSpan;
+
+        let addressSpan = createSVGNode('tspan');
         addressSpan.setAttribute('class', 'address');
         addressSpan.appendChild(document.createTextNode(ins.address));
-        blockTextElm.appendChild(addressSpan);
+        insSpan.appendChild(addressSpan);
 
         let mnemonicSpan = createSVGNode('tspan', {
           x: addressWidth + 2 + 'ex',
-          y: i + 'em',
         });
         mnemonicSpan.setAttribute('class', 'mnemonic');
         mnemonicSpan.appendChild(document.createTextNode(ins.mnemonic));
-        blockTextElm.appendChild(mnemonicSpan);
+        insSpan.appendChild(mnemonicSpan);
 
         let registerSpan = createSVGNode('tspan', {
           x: addressWidth + mnemonicWidth + 5 + 'ex',
-          y: i + 'em',
         });
         registerSpan.setAttribute('class', 'register');
         registerSpan.appendChild(document.createTextNode(ins.op));
-        blockTextElm.appendChild(registerSpan);
+        insSpan.appendChild(registerSpan);
+
+        blockTextElm.appendChild(insSpan);
       }
       graphNode.appendChild(blockElm);
       let blockTextBBox = blockElm.getBBox();
@@ -241,57 +270,57 @@ class Graph {
     this.__updateViewBox();
   }
 
+  __highlight(address) {
+    let element = this.instructionSpans[address];
+    element.setAttribute('class', 'highlight');
+  }
+
+  __scrollIntoView(address) {
+    let offset = this.svg.getBoundingClientRect();
+    let element = this.instructionSpans[address];
+    let elementBBox = element.getBoundingClientRect();
+    this.__moveViewport(
+      elementBBox.left + elementBBox.width / 2.0 - this.svg.clientWidth / 2.0,
+      elementBBox.top + elementBBox.height / 2.0 - this.svg.clientHeight / 2.0
+    );
+    this.__updateViewBox();
+  }
+
+  __moveViewport(x, y) {
+    this.viewport.x = Math.max(
+      0,
+      Math.min(x, this.maxWidth - this.svg.clientWidth / this.viewport.scale)
+    );
+    this.viewport.y = Math.max(
+      0,
+      Math.min(y, this.maxHeight - this.svg.clientHeight / this.viewport.scale)
+    );
+  }
+
   __onWheel(ev) {
     let oldScale = this.viewport.scale;
     this.viewport.scale = Math.max(
       this.svg.clientWidth / this.maxWidth,
       this.svg.clientHeight / this.maxHeight,
-      Math.min(
-        this.viewport.scale + ev.wheelDelta / 1200.0,
-        1.0
-      )
+      Math.min(this.viewport.scale + ev.wheelDelta / 1200.0, 1.0)
     );
     if (oldScale == this.viewport.scale) {
       return;
     }
-    this.viewport.x = Math.max(
-      0,
-      Math.min(
-        this.viewport.x +
-          ev.offsetX / oldScale -
-          ev.offsetX / this.viewport.scale,
-        this.maxWidth - this.svg.clientWidth / this.viewport.scale
-      )
-    );
-    this.viewport.y = Math.max(
-      0,
-      Math.min(
-        this.viewport.y +
-          ev.offsetY / oldScale -
-          ev.offsetY / this.viewport.scale,
-        this.maxHeight - this.svg.clientHeight / this.viewport.scale
-      )
+    this.__moveViewport(
+      this.viewport.x +
+        ev.offsetX / oldScale -
+        ev.offsetX / this.viewport.scale,
+      this.viewport.y + ev.offsetY / oldScale - ev.offsetY / this.viewport.scale
     );
     this.__updateViewBox();
   }
 
   __onMouseMove(ev) {
     if (!this.mousedown) return;
-    this.viewport.x = Math.max(
-      0,
-      Math.min(
-        this.viewport.x -
-          (ev.offsetX - this.mouseanchor.x) / this.viewport.scale,
-        this.maxWidth - this.svg.clientWidth / this.viewport.scale
-      )
-    );
-    this.viewport.y = Math.max(
-      0,
-      Math.min(
-        this.viewport.y -
-          (ev.offsetY - this.mouseanchor.y) / this.viewport.scale,
-        this.maxHeight - this.svg.clientHeight / this.viewport.scale
-      )
+    this.__moveViewport(
+      this.viewport.x - (ev.offsetX - this.mouseanchor.x) / this.viewport.scale,
+      this.viewport.y - (ev.offsetY - this.mouseanchor.y) / this.viewport.scale
     );
     this.__updateViewBox();
     this.mouseanchor = {
@@ -519,7 +548,12 @@ function main() {
       method: 'disassemble-graph',
       startAddress: startAddress,
       endAddress: endAddress,
-    }).then(record => graph.render(record));
+    }).then(record => {
+      graph.render(record);
+      let address = parseInt(currentAddress.substring(2), 16);
+      graph.highlight(address);
+      graph.scrollIntoView(address);
+    });
   }
   function onThreadSelected(frame) {
     currentFrame = frame;
@@ -691,6 +725,7 @@ function main() {
     } else {
       graph.hide();
       document.getElementById('source-editor').style.display = 'block';
+      window.requestAnimationFrame(onSourceReady);
     }
     if (value == preferences.view) {
       return;

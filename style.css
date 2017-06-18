@@ -69,6 +69,10 @@ path.edge.jump {
 	stroke: #fff;
 	stroke-width: 2;
 }
+tspan.highlight {
+	font-weight: bold;
+	background: #f00;
+}
 
 /* Layout */
 .container {
