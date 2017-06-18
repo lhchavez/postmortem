@@ -6,7 +6,7 @@ function Deferred() {
     this.reject = reject;
   }.bind(this));
   Object.freeze(this);
-}
+  }
 
 function createSVGNode(type, attributes) {
   const svgNS = 'http://www.w3.org/2000/svg';
@@ -14,10 +14,10 @@ function createSVGNode(type, attributes) {
   let node = document.createElementNS(svgNS, type);
   if (!attributes) {
     return node;
-  }
+    }
   for (const key in attributes) {
     node.setAttributeNS(null, key, attributes[key]);
-  }
+    }
   return node;
 }
 
@@ -75,7 +75,7 @@ class Graph {
       width : this.svg.clientWidth,
       height : this.svg.clientHeight,
     };
-		this.__render(this.data);
+    this.__render(this.data);
   }
 
   hide() {
@@ -84,19 +84,19 @@ class Graph {
   }
 
   render(data) {
-		this.data = data;
-		this.dirty = true;
-		if (!this.visible) {
-			return;
-		}
-		this.__render(this.data);
+    this.data = data;
+    this.dirty = true;
+    if (!this.visible) {
+      return;
+    }
+    this.__render(this.data);
   }
 
   __render(data) {
     if (!this.dirty) {
       return;
-		}
-		this.dirty = false;
+    }
+    this.dirty = false;
     let offsetY = 20;
     let blocks = {};
     let g = new dagre.graphlib.Graph();
@@ -199,12 +199,13 @@ class Graph {
   }
 
   __onWheel(ev) {
-    this.viewport.width = Math.max(this.svg.clientWidth, this.viewport.width - ev.wheelDelta);
+    this.viewport.width =
+        Math.max(this.svg.clientWidth, this.viewport.width - ev.wheelDelta);
     this.viewport.height =
         Math.max(this.svg.clientHeight, this.viewport.height - ev.wheelDelta);
     this.svg.setAttribute('viewBox',
-                     this.viewport.x + ' ' + this.viewport.y + ' ' + this.viewport.width +
-                         ' ' + this.viewport.height);
+                          this.viewport.x + ' ' + this.viewport.y + ' ' +
+                              this.viewport.width + ' ' + this.viewport.height);
   }
 
   __onMouseMove(ev) {
@@ -214,15 +215,17 @@ class Graph {
     if (this.svg.clientWidth) {
       scale = this.viewport.width / this.svg.clientWidth;
     }
-    this.viewport.x =
-        Math.min(Math.max(0, this.viewport.x - scale * (ev.offsetX - this.mouseanchor.x)),
-                 this.maxWidth - this.svg.clientWidth / scale);
-    this.viewport.y =
-        Math.min(Math.max(0, this.viewport.y - scale * (ev.offsetY - this.mouseanchor.y)),
-                 this.maxHeight - this.svg.clientWidth / scale);
+    this.viewport.x = Math.min(
+        Math.max(0,
+                 this.viewport.x - scale * (ev.offsetX - this.mouseanchor.x)),
+        this.maxWidth - this.svg.clientWidth / scale);
+    this.viewport.y = Math.min(
+        Math.max(0,
+                 this.viewport.y - scale * (ev.offsetY - this.mouseanchor.y)),
+        this.maxHeight - this.svg.clientWidth / scale);
     this.svg.setAttribute('viewBox',
-                     this.viewport.x + ' ' + this.viewport.y + ' ' + this.viewport.width +
-                         ' ' + this.viewport.height);
+                          this.viewport.x + ' ' + this.viewport.y + ' ' +
+                              this.viewport.width + ' ' + this.viewport.height);
     this.mouseanchor = {
       x : ev.offsetX,
       y : ev.offsetY,
@@ -245,6 +248,75 @@ class Graph {
   }
 };
 
+class Machine {
+  constructor() {
+    this.isa = undefined;
+    this.bits = undefined;
+    this.registers = [];
+  }
+
+  set registerNames(registers) {
+    Array.prototype.push.apply(this.registers, registers);
+    if (registers.indexOf('rip') !== -1) {
+      this.isa = 'x86_64';
+      this.bits = 64;
+    } else if (registers.indexOf('eip') !== -1) {
+      this.isa = 'x86';
+      this.bits = 32;
+    } else if (registers.indexOf('x0') !== -1) {
+      this.isa = 'aarch64';
+      this.bits = 64;
+    } else if (registers.indexOf('r0') !== -1) {
+      this.isa = 'arm';
+      this.bits = 32;
+    } else {
+      console.error('unknown architecture');
+    }
+  }
+
+  get registerNames() { return this.registers; }
+
+  get stackRedZone() {
+    if (typeof(this.isa) === 'undefined') {
+      throw new Error('Machine not initialized');
+      }
+    if (this.isa == 'x86_64') {
+      return 128;
+      }
+    return 0;
+  }
+
+  get stackRegister() {
+    if (typeof(this.isa) === 'undefined') {
+      throw new Error('Machine not initialized');
+      }
+    switch (this.isa) {
+    case 'x86_64':
+      return 'rsp';
+    case 'x86':
+      return 'esp';
+    case 'aarch64':
+    case 'arm':
+      return 'sp';
+    }
+  }
+
+  get registerWidth() {
+    if (typeof(this.isa) === 'undefined') {
+      throw new Error('Machine not initialized');
+      }
+    if (this.bits == 64) {
+      return 8;
+      }
+    return 4;
+  }
+
+  get gdbStackCommand() {
+    return '-data-read-memory $' + this.stackRegister + '-' +
+           this.stackRedZone + ' x ' + this.registerWidth + ' 100 1';
+  }
+};
+
 function main() {
   let graph = new Graph(document.getElementById('svg'));
 
@@ -259,6 +331,7 @@ function main() {
 
   let sourceEditor = document.querySelector('#source-editor>pre>code');
   let assemblyEditor = document.querySelector('#assembly-editor>pre>code');
+  let machine = new Machine();
 
   let socket = new WebSocket('ws://localhost:8001');
   let currentFrame = {
@@ -303,7 +376,7 @@ function main() {
       method : 'disassemble-graph',
       startAddress : startAddress,
       endAddress : endAddress
-    }).then(function(record) { graph.render(record); });
+    }).then(record => graph.render(record));
     }
   function onThreadSelected(frame) {
     currentFrame = frame;
@@ -322,13 +395,13 @@ function main() {
         }
       for (let i = 0; i < record['register-values'].length; i++) {
         let reg = record['register-values'][i];
-        if (parseInt(reg.number) > registerNames.length) {
+        if (parseInt(reg.number) > machine.registerNames.length) {
           continue;
           }
         let rowElement = document.createElement('tr');
         let cellElement = document.createElement('td');
         cellElement.appendChild(
-            document.createTextNode(registerNames[parseInt(reg.number)]));
+            document.createTextNode(machine.registerNames[parseInt(reg.number)]));
         rowElement.appendChild(cellElement);
         cellElement = document.createElement('td');
         cellElement.appendChild(document.createTextNode(reg.value));
@@ -338,13 +411,13 @@ function main() {
     });
     socketSend({
       method : 'run',
-      'command' : '-data-read-memory $rsp-128 x 8 100 1'
+      'command' : machine.gdbStackCommand,
     }).then(function(record) {
       let stackElement = document.querySelector('#stack tbody');
       while (stackElement.firstChild) {
         stackElement.removeChild(stackElement.firstChild);
         }
-      let offset = -128;
+      let offset = -machine.stackRedZone;
       for (let entry of record['memory']) {
         let rowElement = document.createElement('tr');
         let cellElement = document.createElement('td');
@@ -393,19 +466,18 @@ function main() {
     }
   };
   socket.onerror = function(event) { console.error(event); };
-  let registerNames = [];
   socket.onopen = function(event) {
     socketSend({method : 'run', 'command' : '-data-list-register-names'})
         .then(function(record) {
-          Array.prototype.push.apply(registerNames, record['register-names']);
-          socketSend({method : 'run', 'command' : '-thread-info'})
-              .then(function(record) {
-                for (let i = 0; i < record.threads.length; ++i) {
-                  if (record.threads[i].id != record['current-thread-id'])
-                    continue;
-                  onThreadSelected(record.threads[i].frame);
-                }
-              });
+          machine.registerNames = record['register-names'];
+          return socketSend({method : 'run', 'command' : '-thread-info'});
+        })
+        .then(function(record) {
+          for (let i = 0; i < record.threads.length; ++i) {
+            if (record.threads[i].id != record['current-thread-id'])
+              continue;
+            onThreadSelected(record.threads[i].frame);
+          }
         });
   };
 
