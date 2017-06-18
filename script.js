@@ -102,7 +102,9 @@ class Graph {
     let offsetY = 20;
     let blocks = {};
     let g = new dagre.graphlib.Graph();
-    g.setGraph({});
+    g.setGraph({
+      ranker: 'tight-tree',
+    });
     let graphNode = document.querySelector('svg g[class="graph"]');
     while (graphNode.lastChild) {
       graphNode.removeChild(graphNode.lastChild);
@@ -384,11 +386,37 @@ function main() {
   let sourceCache = {};
   function onSourceReady() {
     sourceEditor.innerText = sourceCache[currentFrame.fullname];
-    document
-      .querySelector('#source-editor>pre')
-      .setAttribute('data-line', currentFrame.line);
+    if (sourceEditor.innerText) {
+      document
+        .querySelector('#source-editor>pre')
+        .setAttribute('data-line', currentFrame.line);
+    } else {
+      document
+        .querySelector('#source-editor>pre')
+        .setAttribute('data-line', '');
+    }
+    if (currentFrame.fullname.endsWith('java')) {
+      document.querySelector('#source-editor>pre>code').className =
+        'language-java';
+    } else if (
+      currentFrame.fullname.endsWith('cpp') ||
+      currentFrame.fullname.endsWith('cc')
+    ) {
+      document.querySelector('#source-editor>pre>code').className =
+        'language-cpp';
+    } else if (currentFrame.fullname.endsWith('c')) {
+      document.querySelector('#source-editor>pre>code').className =
+        'language-c';
+    } else {
+      console.log(
+        'Unknown language for ' + currentFrame.fullname + '. defaulting to C++'
+      );
+      document.querySelector('#source-editor>pre>code').className = '';
+    }
     Prism.highlightElement(sourceEditor);
-    document.querySelector('#source-editor .line-highlight').scrollIntoView();
+    if (sourceEditor.innerText) {
+      document.querySelector('#source-editor .line-highlight').scrollIntoView();
+    }
   }
   function onAssemblyReady(currentAddress, insns) {
     let contents = '';
