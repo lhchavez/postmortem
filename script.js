@@ -136,8 +136,6 @@ class Graph {
     for (const addr in data) {
       const block = data[addr];
       let blockElm = createSVGNode('g');
-      let blockTextElm = createSVGNode('text');
-      blockElm.appendChild(blockTextElm);
       let addressWidth = 0;
       let mnemonicWidth = 0;
       let opWidth = 0;
@@ -151,33 +149,32 @@ class Graph {
       for (let i = 0; i < block.instructions.length; i++) {
         let ins = block.instructions[i];
 
-        let insSpan = createSVGNode('tspan', {
+        let blockTextElm = createSVGNode('text', {
           x: 0,
           y: i + 'em',
         });
-        insSpan.setAttribute('class', 'instruction');
-        this.instructionSpans[parseInt(ins.address, 16)] = insSpan;
+        this.instructionSpans[parseInt(ins.address, 16)] = blockTextElm;
 
         let addressSpan = createSVGNode('tspan');
         addressSpan.setAttribute('class', 'address');
         addressSpan.appendChild(document.createTextNode(ins.address));
-        insSpan.appendChild(addressSpan);
+        blockTextElm.appendChild(addressSpan);
 
         let mnemonicSpan = createSVGNode('tspan', {
           x: addressWidth + 2 + 'ex',
         });
         mnemonicSpan.setAttribute('class', 'mnemonic');
         mnemonicSpan.appendChild(document.createTextNode(ins.mnemonic));
-        insSpan.appendChild(mnemonicSpan);
+        blockTextElm.appendChild(mnemonicSpan);
 
         let registerSpan = createSVGNode('tspan', {
           x: addressWidth + mnemonicWidth + 5 + 'ex',
         });
         registerSpan.setAttribute('class', 'register');
         registerSpan.appendChild(document.createTextNode(ins.op));
-        insSpan.appendChild(registerSpan);
+        blockTextElm.appendChild(registerSpan);
 
-        blockTextElm.appendChild(insSpan);
+        blockElm.appendChild(blockTextElm);
       }
       graphNode.appendChild(blockElm);
       let blockTextBBox = blockElm.getBBox();
@@ -188,7 +185,7 @@ class Graph {
         height: blockTextBBox.height + 10,
       });
       rectElm.setAttribute('class', 'block');
-      blockElm.insertBefore(rectElm, blockTextElm);
+      blockElm.insertBefore(rectElm, blockElm.firstChild);
       blocks[addr] = {
         label: addr,
         width: blockTextBBox.width + 10,
@@ -272,7 +269,13 @@ class Graph {
 
   __highlight(address) {
     let element = this.instructionSpans[address];
+    let elementBBox = element.getBoundingClientRect();
     element.setAttribute('class', 'highlight');
+    let highlightElement = this.svg.querySelector('rect.instruction-highlight');
+    highlightElement.setAttribute('x', elementBBox.left);
+    highlightElement.setAttribute('y', elementBBox.top + 1);
+    highlightElement.setAttribute('width', element.parentElement.getBoundingClientRect().width - 10);
+    highlightElement.setAttribute('height', elementBBox.height - 2);
   }
 
   __scrollIntoView(address) {
@@ -345,20 +348,23 @@ class Graph {
   }
 
   __updateViewBox() {
+    let mainTransform =
+      'translate(' +
+      -this.viewport.x * this.viewport.scale +
+      ', ' +
+      -this.viewport.y * this.viewport.scale +
+      '),scale(' +
+      this.viewport.scale +
+      ' ' +
+      this.viewport.scale +
+      ')';
     this.svg
       .querySelector('#MainView')
-      .setAttribute(
-        'transform',
-        'translate(' +
-          -this.viewport.x * this.viewport.scale +
-          ', ' +
-          -this.viewport.y * this.viewport.scale +
-          '),scale(' +
-          this.viewport.scale +
-          ' ' +
-          this.viewport.scale +
-          ')'
-      );
+      .setAttribute('transform', mainTransform);
+
+    this.svg
+      .querySelector('rect.instruction-highlight')
+      .setAttribute('transform', mainTransform);
     let miniViewRect = this.svg.querySelector('#MiniView rect.viewport');
     let miniViewOffsetX =
       this.svg.clientWidth - this.maxWidth * this.miniViewScale - 12;

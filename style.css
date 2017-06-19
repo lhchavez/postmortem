@@ -73,6 +73,9 @@ tspan.highlight {
 	font-weight: bold;
 	background: #f00;
 }
+rect.instruction-highlight {
+	fill: #fff;
+}
 
 /* Layout */
 .container {
