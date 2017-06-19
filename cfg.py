@@ -18,6 +18,9 @@ sys.path.append('simple-websocket-server')
 import capstone
 from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
 
+_UNCONDITIONAL_JUMP_MNEMONICS = ['jmp']
+_HALT_MNEMONICS = ['hlt']
+
 
 def _parse_int(x):
   if x.startswith('0x'):
@@ -40,12 +43,14 @@ def _disassemble(memory, startAddress, endAddress):
     if capstone.CS_GRP_JUMP in i.groups:
       cuts.add(i.address + i.size)
       cuts.add(i.operands[0].value.imm)
-      if i.mnemonic == 'jmp':
+      if i.mnemonic in _UNCONDITIONAL_JUMP_MNEMONICS:
         raw_edges[i.address] = [(i.operands[0].value.imm, 'unconditional')]
       else:
         raw_edges[i.address] = [(i.address + i.size, 'fallthrough'),
                                 (i.operands[0].value.imm, 'jump')]
-    elif capstone.CS_GRP_RET not in i.groups:
+    elif capstone.CS_GRP_RET in i.groups or i.mnemonic in _HALT_MNEMONICS:
+      cuts.add(i.address + i.size)
+    else:
       raw_edges[i.address] = [(i.address + i.size, 'unconditional')]
     # Some amount of padding was added to the code to ensure that the last
     # instruction is read fully.
@@ -67,6 +72,10 @@ def _disassemble(memory, startAddress, endAddress):
       'mnemonic': i.mnemonic,
       'op': i.op_str,
     })
+    # Some amount of padding was added to the code to ensure that the last
+    # instruction is read fully.
+    if i.address == endAddress:
+      break
 
   reachable = set()
   queue = ['%x' % startAddress]
