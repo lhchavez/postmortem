@@ -33,6 +33,10 @@ Prism.languages.assembly = {
     pattern: /%[a-z0-9]+/,
     alias: 'function',
   },
+  'source-address': {
+    pattern: /(?:^|\n)[0-9a-fA-F]+/,
+    alias: 'string',
+  },
   address: {
     pattern: /-?0x[0-9a-fA-F]+/,
     alias: 'string',
@@ -46,7 +50,27 @@ Prism.languages.assembly = {
   operator: /[(),]/,
 };
 
-class Graph {
+Prism.hooks.add('after-highlight', function(env) {
+  if (env.language != 'assembly') {
+    return;
+  }
+  let sourceAddressRegexp = /\bsource-address\b/;
+  env.element.addEventListener('click', function(ev) {
+    if (!sourceAddressRegexp.test(ev.target.className)) {
+      return;
+    }
+    ev.target.dispatchEvent(
+      new CustomEvent('source-address', {
+        bubbles: true,
+        detail: {
+          address: parseInt(ev.target.innerText.trim(), 16),
+        },
+      })
+    );
+  });
+});
+
+class GraphView {
   constructor(svg) {
     this.svg = svg;
     this.visible = false;
@@ -66,6 +90,7 @@ class Graph {
     this.svg.addEventListener('mousedown', ev => this.__onMouseDown(ev));
     this.svg.addEventListener('mouseup', ev => this.__onMouseUp(ev));
     this.instructionSpans = {};
+    this.debug = false;
   }
 
   show() {
@@ -124,10 +149,7 @@ class Graph {
     this.dirty = false;
     let offsetY = 20;
     let blocks = {};
-    let g = new dagre.graphlib.Graph();
-    g.setGraph({
-      ranker: 'tight-tree',
-    });
+    let g = new Graph();
     let graphNode = document.querySelector('#ProgramControlFlowGraph');
     while (graphNode.lastChild) {
       graphNode.removeChild(graphNode.lastChild);
@@ -198,21 +220,35 @@ class Graph {
       }
     }
 
-    dagre.layout(g);
-    g.nodes().forEach(function(v) {
-      let block = g.node(v);
+    g.layout();
+    let minX = 1e99;
+    for (let block of g.nodes) {
+      minX = Math.min(minX, block.x);
+    }
+    for (let edge of g.edges) {
+      for (let point of edge.points) {
+        minX = Math.min(minX, point.x);
+      }
+    }
+
+    for (let block of g.nodes) {
       block.element.setAttributeNS(
         null,
         'transform',
-        'translate(' +
-          (5 + block.x - block.width / 2) +
-          ', ' +
-          (18 + block.y - block.height / 2) +
-          ')'
+        'translate(' + (5 + block.x - minX) + ', ' + (18 + block.y) + ')'
       );
-    });
-    g.edges().forEach(function(e) {
-      let edge = g.edge(e);
+      if (this.debug) {
+        let rectElm = createSVGNode('rect', {
+          x: block.subtreeBBox.x - minX,
+          y: block.subtreeBBox.y,
+          width: block.subtreeBBox.width,
+          height: block.subtreeBBox.height,
+        });
+        rectElm.setAttribute('class', 'bounding-box');
+        graphNode.appendChild(rectElm);
+      }
+    }
+    for (let edge of g.edges) {
       let points = '';
       for (let i = 0; i < edge.points.length; i++) {
         if (i == 0) {
@@ -220,14 +256,18 @@ class Graph {
         } else {
           points += 'L';
         }
-        points += edge.points[i].x + ',' + edge.points[i].y;
+        points += edge.points[i].x - minX;
+        points += ',' + edge.points[i].y;
       }
       let lineElm = createSVGNode('path', {
         d: points,
       });
-      lineElm.setAttribute('class', 'edge ' + edge.type);
+      lineElm.setAttribute(
+        'class',
+        'edge ' + edge.type + (edge.back ? ' back-edge' : '')
+      );
       graphNode.appendChild(lineElm);
-    });
+    }
     this.maxWidth = graphNode.getBBox().width;
     this.maxHeight = graphNode.getBBox().height;
 
@@ -274,7 +314,10 @@ class Graph {
     let highlightElement = this.svg.querySelector('rect.instruction-highlight');
     highlightElement.setAttribute('x', elementBBox.left);
     highlightElement.setAttribute('y', elementBBox.top + 1);
-    highlightElement.setAttribute('width', element.parentElement.getBoundingClientRect().width - 10);
+    highlightElement.setAttribute(
+      'width',
+      element.parentElement.getBoundingClientRect().width - 10
+    );
     highlightElement.setAttribute('height', elementBBox.height - 2);
   }
 
@@ -303,8 +346,10 @@ class Graph {
   __onWheel(ev) {
     let oldScale = this.viewport.scale;
     this.viewport.scale = Math.max(
-      this.svg.clientWidth / this.maxWidth,
-      this.svg.clientHeight / this.maxHeight,
+      Math.min(
+        this.svg.clientWidth / this.maxWidth,
+        this.svg.clientHeight / this.maxHeight
+      ),
       Math.min(this.viewport.scale + ev.wheelDelta / 1200.0, 1.0)
     );
     if (oldScale == this.viewport.scale) {
@@ -468,7 +513,7 @@ class Machine {
 }
 
 function main() {
-  let graph = new Graph(document.getElementById('svg'));
+  let graph = new GraphView(document.getElementById('svg'));
 
   function appendConsoleNode(contents, className) {
     let consoleDiv = document.querySelector('.gdb-console');
@@ -537,7 +582,7 @@ function main() {
     let contents = '';
     let activeLine = 0;
     for (let i = 0; i < insns.length; i++) {
-      contents += insns[i].address + ' ' + insns[i].inst + '\n';
+      contents += insns[i].address.substring(2) + ' ' + insns[i].inst + '\n';
       if (insns[i].address == currentAddress) {
         activeLine = i;
       }
@@ -677,6 +722,9 @@ function main() {
         }
       });
   };
+  assemblyEditor.addEventListener('source-address', function(ev) {
+    graph.scrollIntoView(ev.detail.address);
+  });
 
   let cmdHistory = [];
   let cmdHistoryIdx = 0;
@@ -749,6 +797,8 @@ function main() {
     window.localStorage.getItem('preferences') || '{"view":"source"}'
   );
   setView(preferences.view);
+
+  document.querySelector('#gdb-console input').focus();
 }
 
 document.addEventListener('DOMContentLoaded', main, false);
