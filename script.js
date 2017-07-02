@@ -89,8 +89,16 @@ class GraphView {
     this.svg.addEventListener('mousemove', ev => this.__onMouseMove(ev));
     this.svg.addEventListener('mousedown', ev => this.__onMouseDown(ev));
     this.svg.addEventListener('mouseup', ev => this.__onMouseUp(ev));
+
+    this.viewportMousedown = false;
+    let miniViewViewport = this.svg.querySelector('#MiniView rect.viewport');
+    miniViewViewport.addEventListener('mousedown', ev =>
+      this.__viewportOnMouseDown(ev)
+    );
+
     this.instructionSpans = {};
     this.debug = false;
+    this.graph = new Graph();
   }
 
   show() {
@@ -106,7 +114,7 @@ class GraphView {
       };
       this.__render(this.data);
       if (this.highlightedAddress) {
-        this.__highlight(this.highlightedAddress);
+        this.__highlight(this.highlightedAddress, true);
         this.__scrollIntoView(this.highlightedAddress);
       }
     });
@@ -132,13 +140,14 @@ class GraphView {
     if (this.dirty) {
       return;
     }
-    this.__highlight(this.highlightedAddress);
+    this.__highlight(this.highlightedAddress, true);
   }
 
   scrollIntoView(address) {
     if (!this.visible) {
       return;
     }
+    this.__highlight(address, false);
     this.__scrollIntoView(address);
   }
 
@@ -149,12 +158,12 @@ class GraphView {
     this.dirty = false;
     let offsetY = 20;
     let blocks = {};
-    let g = new Graph();
     let graphNode = document.querySelector('#ProgramControlFlowGraph');
     while (graphNode.lastChild) {
       graphNode.removeChild(graphNode.lastChild);
     }
     this.instructionSpans = {};
+    this.graph.clear();
     for (const addr in data) {
       const block = data[addr];
       let blockElm = createSVGNode('g');
@@ -168,6 +177,7 @@ class GraphView {
         mnemonicWidth = Math.max(mnemonicWidth, ins.mnemonic.length);
         opWidth = Math.max(opWidth, ins.op.length);
       }
+
       for (let i = 0; i < block.instructions.length; i++) {
         let ins = block.instructions[i];
 
@@ -214,24 +224,26 @@ class GraphView {
         height: blockTextBBox.height + 10,
         element: blockElm,
       };
-      g.setNode(addr, blocks[addr]);
+      this.graph.setNode(addr, blocks[addr]);
       for (let i = 0; i < block.edges.length; i++) {
-        g.setEdge(addr, block.edges[i].target, { type: block.edges[i].type });
+        this.graph.setEdge(addr, block.edges[i].target, {
+          type: block.edges[i].type,
+        });
       }
     }
 
-    g.layout();
+    this.graph.layout();
     let minX = 1e99;
-    for (let block of g.nodes) {
+    for (let block of this.graph.nodes) {
       minX = Math.min(minX, block.x);
     }
-    for (let edge of g.edges) {
+    for (let edge of this.graph.edges) {
       for (let point of edge.points) {
         minX = Math.min(minX, point.x);
       }
     }
 
-    for (let block of g.nodes) {
+    for (let block of this.graph.nodes) {
       block.element.setAttributeNS(
         null,
         'transform',
@@ -248,7 +260,7 @@ class GraphView {
         graphNode.appendChild(rectElm);
       }
     }
-    for (let edge of g.edges) {
+    for (let edge of this.graph.edges) {
       let points = '';
       for (let i = 0; i < edge.points.length; i++) {
         if (i == 0) {
@@ -307,11 +319,13 @@ class GraphView {
     this.__updateViewBox();
   }
 
-  __highlight(address) {
+  __highlight(address, moveArrow) {
     let element = this.instructionSpans[address];
     let elementBBox = element.getBoundingClientRect();
-    element.setAttribute('class', 'highlight');
-    let highlightElement = this.svg.querySelector('rect.instruction-highlight');
+
+    let highlightElement = this.svg.querySelector(
+      '#instruction-highlight rect'
+    );
     highlightElement.setAttribute('x', elementBBox.left);
     highlightElement.setAttribute('y', elementBBox.top + 1);
     highlightElement.setAttribute(
@@ -319,14 +333,33 @@ class GraphView {
       element.parentElement.getBoundingClientRect().width - 10
     );
     highlightElement.setAttribute('height', elementBBox.height - 2);
+
+    if (moveArrow) {
+      element.setAttribute('class', 'highlight');
+      let highlightArrow = this.svg.querySelector(
+        '#instruction-highlight path'
+      );
+      let highlightArrowBBox = highlightArrow.getBBox();
+      highlightArrow.setAttribute(
+        'transform',
+        'translate(' +
+          (elementBBox.left - highlightArrowBBox.width - 8) +
+          ', ' +
+          (elementBBox.top +
+            (elementBBox.height - highlightArrowBBox.height) / 2.0) +
+          ')'
+      );
+    }
   }
 
   __scrollIntoView(address) {
     let offset = this.svg.getBoundingClientRect();
     let element = this.instructionSpans[address];
     let elementBBox = element.getBoundingClientRect();
+    let elementBBoxWidth =
+      element.parentElement.getBoundingClientRect().width - 10;
     this.__moveViewport(
-      elementBBox.left + elementBBox.width / 2.0 - this.svg.clientWidth / 2.0,
+      elementBBox.left + elementBBoxWidth / 2.0 - this.svg.clientWidth / 2.0,
       elementBBox.top + elementBBox.height / 2.0 - this.svg.clientHeight / 2.0
     );
     this.__updateViewBox();
@@ -366,10 +399,21 @@ class GraphView {
 
   __onMouseMove(ev) {
     if (!this.mousedown) return;
-    this.__moveViewport(
-      this.viewport.x - (ev.offsetX - this.mouseanchor.x) / this.viewport.scale,
-      this.viewport.y - (ev.offsetY - this.mouseanchor.y) / this.viewport.scale
-    );
+    ev.preventDefault();
+    if (this.viewportMousedown) {
+      this.__moveViewport(
+        this.viewport.x +
+          (ev.offsetX - this.mouseanchor.x) / this.miniViewScale,
+        this.viewport.y + (ev.offsetY - this.mouseanchor.y) / this.miniViewScale
+      );
+    } else {
+      this.__moveViewport(
+        this.viewport.x -
+          (ev.offsetX - this.mouseanchor.x) / this.viewport.scale,
+        this.viewport.y -
+          (ev.offsetY - this.mouseanchor.y) / this.viewport.scale
+      );
+    }
     this.__updateViewBox();
     this.mouseanchor = {
       x: ev.offsetX,
@@ -390,6 +434,12 @@ class GraphView {
     ev.preventDefault();
     this.mousedown = false;
     this.mouseanchor = null;
+    this.viewportMousedown = false;
+  }
+
+  __viewportOnMouseDown(ev) {
+    ev.preventDefault();
+    this.viewportMousedown = true;
   }
 
   __updateViewBox() {
@@ -408,7 +458,7 @@ class GraphView {
       .setAttribute('transform', mainTransform);
 
     this.svg
-      .querySelector('rect.instruction-highlight')
+      .querySelector('#instruction-highlight')
       .setAttribute('transform', mainTransform);
     let miniViewRect = this.svg.querySelector('#MiniView rect.viewport');
     let miniViewOffsetX =

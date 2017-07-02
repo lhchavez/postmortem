@@ -84,11 +84,17 @@ class BBox {
 
 class Graph {
   constructor() {
+    this.clear();
+  }
+
+  clear() {
     this._nodes = {};
     this._edges = [];
+    this._dirty = false;
   }
 
   setNode(id, node) {
+    this._dirty = true;
     this._nodes[id] = extend(
       {
         id: id,
@@ -102,6 +108,7 @@ class Graph {
   }
 
   setEdge(from, to, data) {
+    this._dirty = true;
     this._edges.push(
       extend({ from: from, to: to, back: false, points: [] }, data)
     );
@@ -412,6 +419,11 @@ class Graph {
         );
       }
     }
+    this._dirty = false;
+  }
+
+  get dirty() {
+    return this._dirty;
   }
 
   get nodes() {

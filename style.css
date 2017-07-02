@@ -78,12 +78,8 @@ path.edge.back-edge {
 	stroke: #fff;
 	stroke-width: 2;
 }
-tspan.highlight {
+text.highlight tspan {
 	font-weight: bold;
-	background: #f00;
-}
-rect.instruction-highlight {
-	fill: #fff;
 }
 
 /* Layout */
