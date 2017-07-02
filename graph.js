@@ -93,6 +93,10 @@ class Graph {
     this._dirty = false;
   }
 
+  getNode(id) {
+    return this._nodes[id];
+  }
+
   setNode(id, node) {
     this._dirty = true;
     this._nodes[id] = extend(

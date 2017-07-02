@@ -34,7 +34,7 @@ Prism.languages.assembly = {
     alias: 'function',
   },
   'source-address': {
-    pattern: /(?:^|\n)[0-9a-fA-F]+/,
+    pattern: /^[0-9a-fA-F]+/m,
     alias: 'string',
   },
   address: {
@@ -84,6 +84,7 @@ class GraphView {
       scale: 1.0,
     };
     this.mousedown = false;
+    this.mousemoved = false;
     this.mouseanchor = null;
     this.svg.addEventListener('wheel', ev => this.__onWheel(ev));
     this.svg.addEventListener('mousemove', ev => this.__onMouseMove(ev));
@@ -97,6 +98,7 @@ class GraphView {
     );
 
     this.instructionSpans = {};
+    this.instructionNodes = {};
     this.debug = false;
     this.graph = new Graph();
   }
@@ -167,6 +169,7 @@ class GraphView {
     for (const addr in data) {
       const block = data[addr];
       let blockElm = createSVGNode('g');
+      blockElm.classList.add('block');
       let addressWidth = 0;
       let mnemonicWidth = 0;
       let opWidth = 0;
@@ -185,7 +188,9 @@ class GraphView {
           x: 0,
           y: i + 'em',
         });
-        this.instructionSpans[parseInt(ins.address, 16)] = blockTextElm;
+        let address = parseInt(ins.address, 16);
+        this.instructionSpans[address] = blockTextElm;
+        this.instructionNodes[address] = addr;
 
         let addressSpan = createSVGNode('tspan');
         addressSpan.setAttribute('class', 'address');
@@ -279,6 +284,7 @@ class GraphView {
         'edge ' + edge.type + (edge.back ? ' back-edge' : '')
       );
       graphNode.appendChild(lineElm);
+      edge.element = lineElm;
     }
     this.maxWidth = graphNode.getBBox().width;
     this.maxHeight = graphNode.getBBox().height;
@@ -320,12 +326,40 @@ class GraphView {
   }
 
   __highlight(address, moveArrow) {
-    let element = this.instructionSpans[address];
-    let elementBBox = element.getBoundingClientRect();
-
     let highlightElement = this.svg.querySelector(
       '#instruction-highlight rect'
     );
+    for (let previous of this.svg.querySelectorAll('g.current')) {
+      previous.classList.remove('current');
+    }
+    for (let previous of this.svg.querySelectorAll('g.reachable')) {
+      previous.classList.remove('reachable');
+    }
+    for (let activePath of this.svg.querySelectorAll('path.active')) {
+      activePath.classList.remove('active');
+    }
+    if (address === null) {
+      this.svg.classList.add('unselected');
+      highlightElement.setAttribute('opacity', 0);
+      return;
+    }
+    this.svg.classList.remove('unselected');
+    highlightElement.setAttribute('opacity', 1.0);
+
+    let element = this.instructionSpans[address];
+    let elementBBox = element.getBoundingClientRect();
+
+    let node = this.graph.getNode(this.instructionNodes[address]);
+    node.element.classList.add('current');
+    for (let edge of node.inEdges) {
+      edge.element.classList.add('active');
+      this.graph.getNode(edge.from).element.classList.add('reachable');
+    }
+    for (let edge of node.outEdges) {
+      edge.element.classList.add('active');
+      this.graph.getNode(edge.to).element.classList.add('reachable');
+    }
+
     highlightElement.setAttribute('x', elementBBox.left);
     highlightElement.setAttribute('y', elementBBox.top + 1);
     highlightElement.setAttribute(
@@ -353,7 +387,6 @@ class GraphView {
   }
 
   __scrollIntoView(address) {
-    let offset = this.svg.getBoundingClientRect();
     let element = this.instructionSpans[address];
     let elementBBox = element.getBoundingClientRect();
     let elementBBoxWidth =
@@ -400,6 +433,7 @@ class GraphView {
   __onMouseMove(ev) {
     if (!this.mousedown) return;
     ev.preventDefault();
+    this.mousemoved = true;
     if (this.viewportMousedown) {
       this.__moveViewport(
         this.viewport.x +
@@ -424,14 +458,40 @@ class GraphView {
   __onMouseDown(ev) {
     ev.preventDefault();
     this.mousedown = true;
+    this.mousemoved = false;
     this.mouseanchor = {
       x: ev.offsetX,
       y: ev.offsetY,
     };
   }
 
+  __findAddressAtCoordinates(x, y) {
+    for (let address of Object.keys(this.instructionSpans)) {
+      let element = this.instructionSpans[address];
+      let elementBBox = element.getBoundingClientRect();
+      let elementBBoxWidth =
+        element.parentElement.getBoundingClientRect().width - 10;
+
+      if (
+        elementBBox.left <= x &&
+        x <= elementBBox.left + elementBBoxWidth &&
+        (elementBBox.top <= y && y <= elementBBox.bottom)
+      ) {
+        return address;
+      }
+    }
+    return null;
+  }
+
   __onMouseUp(ev) {
     ev.preventDefault();
+    if (!this.mousemoved) {
+      let clickedAddress = this.__findAddressAtCoordinates(
+        this.mouseanchor.x / this.viewport.scale + this.viewport.x,
+        this.mouseanchor.y / this.viewport.scale + this.viewport.y
+      );
+      this.__highlight(clickedAddress);
+    }
     this.mousedown = false;
     this.mouseanchor = null;
     this.viewportMousedown = false;

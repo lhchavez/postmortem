@@ -35,6 +35,15 @@ rect.block {
 	fill: #4a4a4a;
 	stroke: #5f5f5f;
 }
+g.block {
+	opacity: 0.1;
+}
+svg.unselected g.block, g.block.current {
+	opacity: 1.0 !important;
+}
+g.block.reachable {
+	opacity: 0.6;
+}
 rect.bounding-box {
 	fill: none;
 	stroke: #f00;
@@ -52,6 +61,7 @@ tspan.register {
 path.edge {
 	fill: none;
 	stroke-width: 2;
+	opacity: 0.1;
 }
 path.edge.unconditional {
 	stroke: #77c5d1;
@@ -66,7 +76,10 @@ path.edge.jump {
 	marker-end: url(#TriangleJump);
 }
 path.edge.back-edge {
-	stroke-dasharray: 1,1;
+	stroke-dasharray: 4,4;
+}
+svg.unselected path.edge, path.edge.active {
+	opacity: 1.0;
 }
 #MiniView rect.background {
 	fill: #000000;
