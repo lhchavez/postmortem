@@ -1,5 +1,7 @@
 #!/usr/bin/python3
 
+"""A tiny gdb frontend. This is intended for post-mortem debugging."""
+
 import argparse
 import base64
 import collections
@@ -13,327 +15,384 @@ import subprocess
 import sys
 import threading
 
+import capstone
+
 sys.path.append('simple-websocket-server')
 
-import capstone
+# pylint: disable=import-error,wrong-import-position
 from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
 
 _UNCONDITIONAL_JUMP_MNEMONICS = ['jmp']
 _HALT_MNEMONICS = ['hlt']
 
 
-def _parse_int(x):
-  if x.startswith('0x'):
-    return int(x[2:], 16)
-  return int(x)
+def _parse_int(s):
+    if s.startswith('0x'):
+        return int(s[2:], 16)
+    return int(s)
 
 
-def _disassemble(memory, startAddress, endAddress):
-  cuts = set([startAddress])
-  raw_edges = collections.defaultdict(list)
-  block_edges = collections.defaultdict(set)
-  blocks = collections.defaultdict(lambda: {'edges': [], 'instructions': []})
-
-  md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
-  md.detail = True
-
-  code = base64.b16decode(memory, casefold=True)
-
-  for i in md.disasm(code, startAddress):
-    if capstone.CS_GRP_JUMP in i.groups:
-      cuts.add(i.address + i.size)
-      cuts.add(i.operands[0].value.imm)
-      if i.mnemonic in _UNCONDITIONAL_JUMP_MNEMONICS:
-        raw_edges[i.address] = [(i.operands[0].value.imm, 'unconditional')]
-      else:
-        raw_edges[i.address] = [(i.address + i.size, 'fallthrough'),
-                                (i.operands[0].value.imm, 'jump')]
-    elif capstone.CS_GRP_RET in i.groups or i.mnemonic in _HALT_MNEMONICS:
-      cuts.add(i.address + i.size)
-    else:
-      raw_edges[i.address] = [(i.address + i.size, 'unconditional')]
-    # Some amount of padding was added to the code to ensure that the last
-    # instruction is read fully.
-    if i.address == endAddress:
-      break
-
-  current_block = None
-  for i in md.disasm(code, startAddress):
-    if i.address in cuts:
-      current_block = blocks['%x' % i.address]
-    if i.address in raw_edges:
-      for dst, edgetype in raw_edges[i.address]:
-        if dst not in cuts:
-          continue
-        current_block['edges'].append({'type': edgetype, 'target': '%x' % dst})
-    current_block['instructions'].append({
-      'address': '%x' % i.address,
-      'bytes': [x for x in i.bytes],
-      'mnemonic': i.mnemonic,
-      'op': i.op_str,
-    })
-    # Some amount of padding was added to the code to ensure that the last
-    # instruction is read fully.
-    if i.address == endAddress:
-      break
-
-  reachable = set()
-  queue = ['%x' % startAddress]
-  while queue:
-    addr = queue.pop()
-    if addr in reachable:
-      continue
-    reachable.add(addr)
-    for edge in blocks[addr]['edges']:
-      queue.append(edge['target'])
-
-  for unreachable in sorted(set(blocks.keys()) - reachable):
-    del blocks[unreachable]
-
-  return blocks
-
-
-class GdbConnection(object):
-  def __init__(self, binary, core, ws):
-    self._ws = ws
-    self._ptm, self._pts = pty.openpty()
-    self._p = subprocess.Popen(
-        ['/usr/bin/gdb', '--nx', '--quiet', '--interpreter=mi',
-         '--tty=%s' % os.ttyname(self._pts), binary, core],
-        stdout=subprocess.PIPE, stdin=subprocess.PIPE)
-    for message in self.readResponse():
-      self._ws.sendMessage(json.dumps(message))
-    self.send(b'-enable-frame-filters')
-
-  def send(self, *args, token=None):
-    payload = b''
-    if token is not None:
-      payload += b'%d' % token
-    payload += b' '.join(args) + b'\n'
-    logging.debug('Wrote %s', payload)
-    self._p.stdin.write(payload)
-    self._p.stdin.flush()
-    yield from self.readResponse()
-
-  @staticmethod
-  def _parseConst(line, value_idx):
-    assert line[value_idx] == ord('"')
-    value_idx += 1
-    value = ''
-    while line[value_idx] != ord('"'):
-      if line[value_idx] == ord('\\'):
-        value_idx += 1
-        if line[value_idx] == ord('n'):
-          value += '\n'
-        elif line[value_idx] == ord('r'):
-          value += '\r'
-        elif line[value_idx] == ord('t'):
-          value += '\t'
-        elif line[value_idx] == ord('f'):
-          value += '\f'
-        elif line[value_idx] == ord('b'):
-          value += '\b'
-        elif line[value_idx] == ord('\\'):
-          value += '\\'
-        elif line[value_idx] == ord('"'):
-          value += '"'
+def _calculate_edges(disassembler, code, address_range):
+    cuts = set([address_range[0]])
+    edges = collections.defaultdict(list)
+    for i in disassembler.disasm(code, address_range[0]):
+        if capstone.CS_GRP_JUMP in i.groups:
+            cuts.add(i.address + i.size)
+            cuts.add(i.operands[0].value.imm)
+            if i.mnemonic in _UNCONDITIONAL_JUMP_MNEMONICS:
+                edges[i.address] = [(i.operands[0].value.imm, 'unconditional')]
+            else:
+                edges[i.address] = [(i.address + i.size, 'fallthrough'),
+                                    (i.operands[0].value.imm, 'jump')]
+        elif capstone.CS_GRP_RET in i.groups or i.mnemonic in _HALT_MNEMONICS:
+            cuts.add(i.address + i.size)
         else:
-          raise Exception('Unknown escape code: %s' % chr(line[value_idx]))
-      else:
-        value += str(chr(line[value_idx]))
-      value_idx += 1
-    return value, value_idx + 1
+            edges[i.address] = [(i.address + i.size, 'unconditional')]
+        # Some amount of padding was added to the code to ensure that the last
+        # instruction is read fully.
+        if i.address >= address_range[1]:
+            break
+    return cuts, edges
 
-  @staticmethod
-  def _parseList(line, value_idx):
-    result = []
-    assert line[value_idx] == ord('[')
-    if line[value_idx+1] == ord(']'):
-      return result, value_idx + 2
-    while line[value_idx] != ord(']'):
-      value, value_idx = GdbConnection._parseValue(line, value_idx + 1)
-      result.append(value)
-    return result, value_idx + 1
 
-  @staticmethod
-  def _parseTuple(line, value_idx, opening=ord('{'), closing=ord('}')):
-    result = {}
-    assert line[value_idx] == opening
-    if line[value_idx+1] == closing:
-      return result, value_idx + 2
-    while line[value_idx] != closing:
-      variable_idx = value_idx + 1
-      value_idx = line.index(b'=', variable_idx)
-      variable = line[variable_idx:value_idx].decode('utf-8')
-      result[variable], value_idx = GdbConnection._parseValue(line, value_idx+1)
-    return result, value_idx + 1
+def _fill_basic_blocks(disassembler, code, cuts, edges, address_range):
+    blocks = collections.defaultdict(lambda: {'edges': [], 'instructions': []})
 
-  @staticmethod
-  def _parseValue(line, value_idx):
-    if line[value_idx] == ord('['):
-      return GdbConnection._parseList(line, value_idx)
-    elif line[value_idx] == ord('{'):
-      return GdbConnection._parseTuple(line, value_idx)
-    elif line[value_idx] == ord('"'):
-      return GdbConnection._parseConst(line, value_idx)
-    else:
-      # Old-style tuple.
-      return GdbConnection._parseValue(line, line.find(b'=', value_idx) + 1)
+    current_block = None
+    for i in disassembler.disasm(code, address_range[0]):
+        if i.address in cuts:
+            current_block = blocks['%x' % i.address]
+        if i.address in edges:
+            for dst, edgetype in edges[i.address]:
+                if dst not in cuts:
+                    continue
+                current_block['edges'].append({'type': edgetype,
+                                               'target': '%x' % dst})
+        current_block['instructions'].append({
+            'address': '%x' % i.address,
+            'bytes': [x for x in i.bytes],
+            'mnemonic': i.mnemonic,
+            'op': i.op_str,
+        })
+        # Some amount of padding was added to the code to ensure that the last
+        # instruction is read fully.
+        if i.address >= address_range[1]:
+            break
+    return blocks
 
-  @staticmethod
-  def _parseClass(line, value_idx):
-    result_idx = line.find(b',', value_idx)
-    if result_idx == -1:
-      return line[value_idx:].decode('utf-8'), len(line)
-    return line[value_idx:result_idx].decode('utf-8'), result_idx
 
-  @staticmethod
-  def _parseRecord(line, result_idx):
-    result = {}
-    className, result_idx = GdbConnection._parseClass(line, result_idx)
-    while result_idx < len(line):
-      variable_idx = result_idx + 1
-      value_idx = line.index(b'=', variable_idx)
-      variable = line[variable_idx:value_idx].decode('utf-8')
-      result[variable], result_idx = GdbConnection._parseValue(line, value_idx+1)
-    return className, result
+def _prune_unreachable(blocks, address_range):
+    reachable = set()
+    queue = ['%x' % address_range[0]]
+    while queue:
+        addr = queue.pop()
+        if addr in reachable:
+            continue
+        reachable.add(addr)
+        for edge in blocks[addr]['edges']:
+            queue.append(edge['target'])
 
-  @staticmethod
-  def _parseToken(line):
-    result_idx = 0
-    token = 0
-    while ord('0') <= line[result_idx] <= ord('9'):
-      token = 10 * token + line[result_idx] - ord('0')
-      result_idx += 1
-    if result_idx == 0:
-      return None, result_idx
-    return token, result_idx
+    for unreachable in sorted(set(blocks.keys()) - reachable):
+        del blocks[unreachable]
 
-  @staticmethod
-  def _parseLine(line):
-    result = {}
 
-    token, result_idx = GdbConnection._parseToken(line)
-    if token is not None:
-      result['token'] = token
-    if line[result_idx] == ord('^'):
-      result['type'] = 'result'
-    elif line[result_idx] == ord('*'):
-      result['type'] = 'exec-async'
-    elif line[result_idx] == ord('+'):
-      result['type'] = 'status-async'
-    elif line[result_idx] == ord('='):
-      result['type'] = 'notify-async'
-    elif line[result_idx] == ord('~'):
-      result['type'] = 'console-stream'
-    elif line[result_idx] == ord('@'):
-      result['type'] = 'target-stream'
-    elif line[result_idx] == ord('&'):
-      result['type'] = 'log-stream'
-    else:
-      logging.error('unknown character %s', chr(line[result_idx]))
-      return result
+def _disassemble(memory, address_range):
+    disassembler = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+    disassembler.detail = True
+    code = base64.b16decode(memory, casefold=True)
 
-    result_idx += 1
-    if result['type'].endswith('-stream'):
-      result['payload'], _ = GdbConnection._parseConst(line, result_idx)
-    elif result['type'].endswith('-async'):
-      result['class'], result['output'] = GdbConnection._parseRecord(line, result_idx)
-    else:
-      result['class'], result['record'] = GdbConnection._parseRecord(line, result_idx)
+    cuts, edges = _calculate_edges(disassembler, code, address_range)
+    blocks = _fill_basic_blocks(disassembler, code, cuts, edges, address_range)
+    _prune_unreachable(blocks, address_range)
 
-    return result
+    return blocks
 
-  def readResponse(self):
-    while True:
-      line = self._p.stdout.readline()
-      logging.debug('Read %s', line)
-      if not line or line == b'(gdb) \n':
-        break
-      yield GdbConnection._parseLine(line.rstrip())
+
+class GdbConnection(object):  # pylint: disable=too-few-public-methods
+    """Represents a gdb connection with the gdb/mi protocol."""
+
+    def __init__(self, binary, core, ws):
+        self._ws = ws
+        self._ptm, self._pts = pty.openpty()
+        self._p = subprocess.Popen(
+            ['/usr/bin/gdb', '--nx', '--quiet', '--interpreter=mi',
+             '--tty=%s' % os.ttyname(self._pts), binary, core],
+            stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+        for message in self._read_response():
+            self._ws.sendMessage(json.dumps(message))
+        self.send(b'-enable-frame-filters')
+
+    def send(self, *args, token=None):
+        """Sends a command to gdb."""
+        payload = b''
+        if token is not None:
+            payload += b'%d' % token
+        payload += b' '.join(args) + b'\n'
+        logging.debug('Wrote %s', payload)
+        self._p.stdin.write(payload)
+        self._p.stdin.flush()
+        yield from self._read_response()
+
+    @staticmethod
+    def _parse_const(line, value_idx):
+        assert line[value_idx] == ord('"')
+        value_idx += 1
+        value = ''
+        while line[value_idx] != ord('"'):
+            if line[value_idx] == ord('\\'):
+                value_idx += 1
+                if line[value_idx] == ord('n'):
+                    value += '\n'
+                elif line[value_idx] == ord('r'):
+                    value += '\r'
+                elif line[value_idx] == ord('t'):
+                    value += '\t'
+                elif line[value_idx] == ord('f'):
+                    value += '\f'
+                elif line[value_idx] == ord('b'):
+                    value += '\b'
+                elif line[value_idx] == ord('\\'):
+                    value += '\\'
+                elif line[value_idx] == ord('"'):
+                    value += '"'
+                else:
+                    raise Exception('Unknown escape code: %s' %
+                                    chr(line[value_idx]))
+            else:
+                value += str(chr(line[value_idx]))
+            value_idx += 1
+        return value, value_idx + 1
+
+    @staticmethod
+    def _parse_list(line, value_idx):
+        result = []
+        assert line[value_idx] == ord('[')
+        if line[value_idx+1] == ord(']'):
+            return result, value_idx + 2
+        while line[value_idx] != ord(']'):
+            value, value_idx = GdbConnection._parse_value(line, value_idx + 1)
+            result.append(value)
+        return result, value_idx + 1
+
+    @staticmethod
+    def _parse_tuple(line, value_idx, opening=ord('{'), closing=ord('}')):
+        result = {}
+        assert line[value_idx] == opening
+        if line[value_idx+1] == closing:
+            return result, value_idx + 2
+        while line[value_idx] != closing:
+            variable_idx = value_idx + 1
+            value_idx = line.index(b'=', variable_idx)
+            variable = line[variable_idx:value_idx].decode('utf-8')
+            result[variable], value_idx = GdbConnection._parse_value(
+                line, value_idx + 1)
+        return result, value_idx + 1
+
+    @staticmethod
+    def _parse_value(line, value_idx):
+        if line[value_idx] == ord('['):
+            return GdbConnection._parse_list(line, value_idx)
+        if line[value_idx] == ord('{'):
+            return GdbConnection._parse_tuple(line, value_idx)
+        if line[value_idx] == ord('"'):
+            return GdbConnection._parse_const(line, value_idx)
+        # Old-style tuple.
+        return GdbConnection._parse_value(line, line.find(b'=', value_idx) + 1)
+
+    @staticmethod
+    def _parse_class(line, value_idx):
+        result_idx = line.find(b',', value_idx)
+        if result_idx == -1:
+            return line[value_idx:].decode('utf-8'), len(line)
+        return line[value_idx:result_idx].decode('utf-8'), result_idx
+
+    @staticmethod
+    def _parse_record(line, result_idx):
+        result = {}
+        class_name, result_idx = GdbConnection._parse_class(line, result_idx)
+        while result_idx < len(line):
+            variable_idx = result_idx + 1
+            value_idx = line.index(b'=', variable_idx)
+            variable = line[variable_idx:value_idx].decode('utf-8')
+            result[variable], result_idx = GdbConnection._parse_value(
+                line, value_idx+1)
+        return class_name, result
+
+    @staticmethod
+    def _parse_token(line):
+        result_idx = 0
+        token = 0
+        while ord('0') <= line[result_idx] <= ord('9'):
+            token = 10 * token + line[result_idx] - ord('0')
+            result_idx += 1
+        if result_idx == 0:
+            return None, result_idx
+        return token, result_idx
+
+    @staticmethod
+    def _parse_line(line):
+        result = {}
+
+        token, result_idx = GdbConnection._parse_token(line)
+        if token is not None:
+            result['token'] = token
+        if line[result_idx] == ord('^'):
+            result['type'] = 'result'
+        elif line[result_idx] == ord('*'):
+            result['type'] = 'exec-async'
+        elif line[result_idx] == ord('+'):
+            result['type'] = 'status-async'
+        elif line[result_idx] == ord('='):
+            result['type'] = 'notify-async'
+        elif line[result_idx] == ord('~'):
+            result['type'] = 'console-stream'
+        elif line[result_idx] == ord('@'):
+            result['type'] = 'target-stream'
+        elif line[result_idx] == ord('&'):
+            result['type'] = 'log-stream'
+        else:
+            logging.error('unknown character %s', chr(line[result_idx]))
+            return result
+
+        result_idx += 1
+        if result['type'].endswith('-stream'):
+            result['payload'], _ = GdbConnection._parse_const(line, result_idx)
+        elif result['type'].endswith('-async'):
+            result['class'], result['output'] = GdbConnection._parse_record(
+                line, result_idx)
+        else:
+            result['class'], result['record'] = GdbConnection._parse_record(
+                line, result_idx)
+
+        return result
+
+    def _read_response(self):
+        """Reads a response from gdb."""
+        while True:
+            line = self._p.stdout.readline()
+            logging.debug('Read %s', line)
+            if not line or line == b'(gdb) \n':
+                break
+            yield GdbConnection._parse_line(line.rstrip())
 
 
 class GdbServer(WebSocket):
-  def __init__(self, binary, core, server, sock, address):
-    super(self.__class__, self).__init__(server, sock, address)
-    self._binary = binary
-    self._core = core
-    self._connection = None
+    """A WebSocket connection to the browser."""
 
-  def handleMessage(self):
-    try:
-      data = json.loads(self.data)
-      token = None
-      if 'token' in data:
-        token = int(data['token'])
-      if data['method'] == 'run':
-        for message in self._connection.send(data['command'].encode('utf-8'), token=token):
-          self.sendMessage(json.dumps(message))
-      elif data['method'] == 'interpreter-exec':
-        for message in self._connection.send(b'-interpreter-exec', b'console', data['command'].encode('utf-8')):
-          self.sendMessage(json.dumps(message))
-      elif data['method'] == 'get-source':
-        try:
-          with open(data['filename'], 'r') as f:
-            self.sendMessage(json.dumps({'type':'result','record':f.read(),'token':token}))
-        except:
-          self.sendMessage(json.dumps({'type':'result','record':None,'token':token}))
-      elif data['method'] == 'disassemble-graph':
-        for message in self._connection.send(b'-data-read-memory-bytes',
-                                             b'0x%x' % data['startAddress'],
-                                             b'%d' % (data['endAddress'] - data['startAddress'] + 32)):
-          if message['type'] == 'result':
-            graph = _disassemble(message['record']['memory'][0]['contents'], data['startAddress'], data['endAddress'])
-            self.sendMessage(json.dumps({'type':'result','record':graph,'token':token}))
-          else:
+    # pylint: disable=too-many-arguments
+    def __init__(self, binary, core, server, sock, address):
+        super().__init__(server, sock, address)
+        self._binary = binary
+        self._core = core
+        self._connection = None
+
+    def _handle_run_message(self, command, token=None):
+        for message in self._connection.send(command, token=token):
             self.sendMessage(json.dumps(message))
-      else:
+
+    def _handle_interpreter_exec(self, command):
+        for message in self._connection.send(b'-interpreter-exec', b'console',
+                                             command):
+            self.sendMessage(json.dumps(message))
+
+    def _handle_get_source(self, filename, token=None):
+        record = None
+        try:
+            with open(filename, 'r') as f:
+                record = f.read()
+        except:  # pylint: disable=bare-except
+            logging.exception('Failed to read %s', filename)
+        self.sendMessage(json.dumps({'type': 'result',
+                                     'record': record,
+                                     'token': token}))
+
+    def _handle_disassemble_graph(self, address_range, token=None):
+        for message in self._connection.send(
+                b'-data-read-memory-bytes',
+                b'0x%x' % address_range[0],
+                b'%d' % (address_range[1] - address_range[0] + 32)):
+            if message['type'] == 'result':
+                graph = _disassemble(
+                    message['record']['memory'][0]['contents'], address_range)
+                self.sendMessage(json.dumps({'type': 'result',
+                                             'record': graph,
+                                             'token': token}))
+            else:
+                self.sendMessage(json.dumps(message))
+
+    def handleMessage(self):  # pylint: disable=invalid-name
+        """Handles one WebSockets message."""
+        data = json.loads(self.data)
+        token = None
+        if 'token' in data:
+            token = int(data['token'])
+        if data['method'] == 'run':
+            self._handle_run_message(data['command'].encode('utf-8'),
+                                     token=token)
+            return
+        if data['method'] == 'interpreter-exec':
+            self._handle_interpreter_exec(data['command'].encode('utf-8'))
+            return
+        if data['method'] == 'get-source':
+            self._handle_get_source(data['filename'].encode('utf-8'),
+                                    token=token)
+            return
+        if data['method'] == 'disassemble-graph':
+            self._handle_disassemble_graph(
+                (data['startAddress'], data['endAddress']), token=token)
+            return
         logging.error('unhandled method %s', data)
-    except:
-      logging.exception('something failed')
 
-  def handleConnected(self):
-    logging.info('%s connected', self.address)
-    self._connection = GdbConnection(self._binary, self._core, self)
+    def handleConnected(self):  # pylint: disable=invalid-name
+        """Handles the WebSocket connected event."""
+        logging.info('%s connected', self.address)
+        self._connection = GdbConnection(self._binary, self._core, self)
 
-  def handleClose(self):
-    logging.info('%s closed', self.address)
-    self._connection.send(b'-gdb-exit')
+    def handleClose(self):  # pylint: disable=invalid-name
+        """Handles the WebSocket close event."""
+        logging.info('%s closed', self.address)
+        self._connection.send(b'-gdb-exit')
 
 
-def GdbServerFactory(binary, core):
-  def factory(*args, **kwargs):
-    return GdbServer(binary, core, *args, **kwargs)
-  return factory
+def gdb_server_factory(binary, core):
+    """Factory for GdbServer websocket support."""
+    def _factory(*args, **kwargs):
+        return GdbServer(binary, core, *args, **kwargs)
+    return _factory
 
 
 def main():
-  parser = argparse.ArgumentParser()
-  parser.add_argument('--verbose', '-v', action='store_true')
-  parser.add_argument('binary', type=str)
-  parser.add_argument('core', type=str)
+    """Main entrypoint."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--verbose', '-v', action='store_true')
+    parser.add_argument('binary', type=str)
+    parser.add_argument('core', type=str)
 
-  args = parser.parse_args()
+    args = parser.parse_args()
 
-  if args.verbose:
-    logging.basicConfig(level=logging.DEBUG)
-  else:
-    logging.basicConfig(level=logging.INFO)
+    if args.verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
 
-  gdb_server = SimpleWebSocketServer('localhost', 8001, GdbServerFactory(args.binary, args.core))
-  websocket_thread = threading.Thread(target=lambda: gdb_server.serveforever(), daemon=True)
-  websocket_thread.start()
+    gdb_server = SimpleWebSocketServer('localhost', 8001,
+                                       gdb_server_factory(args.binary,
+                                                          args.core))
+    websocket_thread = threading.Thread(target=gdb_server.serveforever,
+                                        daemon=True)
+    websocket_thread.start()
 
-  socketserver.TCPServer.allow_reuse_address = True
-  http_server = socketserver.TCPServer(('localhost', 8000), http.server.SimpleHTTPRequestHandler)
-  threading.Thread(target=lambda: http_server.serve_forever(), daemon=True).start()
+    socketserver.TCPServer.allow_reuse_address = True
+    http_server = socketserver.TCPServer(('localhost', 8000),
+                                         http.server.SimpleHTTPRequestHandler)
+    threading.Thread(target=http_server.serve_forever, daemon=True).start()
 
-  subprocess.check_call(['/usr/bin/xdg-open', 'http://localhost:8000'])
+    subprocess.check_call(['/usr/bin/xdg-open', 'http://localhost:8000'])
 
-  websocket_thread.join()
+    websocket_thread.join()
 
 
 if __name__ == '__main__':
-  main()
+    main()
 
-# vi: tabstop=2 shiftwidth=2
+# vi: tabstop=4 shiftwidth=4

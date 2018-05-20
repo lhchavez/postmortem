@@ -1,0 +1,15 @@
+[MESSAGES CONTROL]
+
+# TODOs are useful to locally indicate that something is not (yet) working.
+#  fixme = (warning notes in code comments; message varies).
+disable=fixme
+
+[BASIC]
+
+# We allow variables to be two characters.
+attr-rgx=[a-z_][a-z0-9_]{1,64}$
+function-rgx=[a-z_][a-z0-9_]{1,64}$
+variable-rgx=[a-z_][a-z0-9_]{1,64}$
+
+# We also allow 's' (for strings) and 'f' (for files)
+good-names=i,j,k,ex,_,s,f
