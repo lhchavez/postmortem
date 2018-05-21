@@ -111,12 +111,12 @@ def _disassemble(memory, address_range):
 class GdbConnection(object):  # pylint: disable=too-few-public-methods
     """Represents a gdb connection with the gdb/mi protocol."""
 
-    def __init__(self, binary, core, ws):
+    def __init__(self, gdb_path, gdb_args, ws):
         self._ws = ws
         self._ptm, self._pts = pty.openpty()
         self._p = subprocess.Popen(
-            ['/usr/bin/gdb', '--nx', '--quiet', '--interpreter=mi',
-             '--tty=%s' % os.ttyname(self._pts), binary, core],
+            [gdb_path, '--nx', '--quiet', '--interpreter=mi',
+             '--tty=%s' % os.ttyname(self._pts)] + gdb_args,
             stdout=subprocess.PIPE, stdin=subprocess.PIPE)
         for message in self._read_response():
             self._ws.sendMessage(json.dumps(message))
@@ -280,10 +280,10 @@ class GdbServer(WebSocket):
     """A WebSocket connection to the browser."""
 
     # pylint: disable=too-many-arguments
-    def __init__(self, binary, core, server, sock, address):
+    def __init__(self, gdb_path, gdb_args, server, sock, address):
         super().__init__(server, sock, address)
-        self._binary = binary
-        self._core = core
+        self._gdb_path = gdb_path
+        self._gdb_args = gdb_args
         self._connection = None
 
     def _handle_run_message(self, command, token=None):
@@ -346,7 +346,7 @@ class GdbServer(WebSocket):
     def handleConnected(self):  # pylint: disable=invalid-name
         """Handles the WebSocket connected event."""
         logging.info('%s connected', self.address)
-        self._connection = GdbConnection(self._binary, self._core, self)
+        self._connection = GdbConnection(self._gdb_path, self._gdb_args, self)
 
     def handleClose(self):  # pylint: disable=invalid-name
         """Handles the WebSocket close event."""
@@ -354,10 +354,10 @@ class GdbServer(WebSocket):
         self._connection.send(b'-gdb-exit')
 
 
-def gdb_server_factory(binary, core):
+def gdb_server_factory(gdb_path, gdb_args):
     """Factory for GdbServer websocket support."""
     def _factory(*args, **kwargs):
-        return GdbServer(binary, core, *args, **kwargs)
+        return GdbServer(gdb_path, gdb_args, *args, **kwargs)
     return _factory
 
 
@@ -365,8 +365,10 @@ def main():
     """Main entrypoint."""
     parser = argparse.ArgumentParser()
     parser.add_argument('--verbose', '-v', action='store_true')
-    parser.add_argument('binary', type=str)
-    parser.add_argument('core', type=str)
+    parser.add_argument('--gdb-path', default='/usr/bin/gdb',
+                        help='Path to the gdb binary')
+    parser.add_argument('gdb_args', metavar='GDB-ARG', type=str, nargs='+',
+                        help='Argument to gdb')
 
     args = parser.parse_args()
 
@@ -376,8 +378,8 @@ def main():
         logging.basicConfig(level=logging.INFO)
 
     gdb_server = SimpleWebSocketServer('localhost', 0,
-                                       gdb_server_factory(args.binary,
-                                                          args.core))
+                                       gdb_server_factory(args.gdb_path,
+                                                          args.gdb_args))
     gdb_server_port = gdb_server.serversocket.getsockname()[1]
     websocket_thread = threading.Thread(target=gdb_server.serveforever,
                                         daemon=True)
