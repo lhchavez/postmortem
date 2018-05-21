@@ -666,7 +666,8 @@ function main() {
   }
   let sourceCache = {};
   function onSourceReady() {
-    sourceEditor.innerText = sourceCache[currentFrame.fullname];
+    const sourcePath = currentFrame.fullname || '<unknown>';
+    sourceEditor.innerText = sourceCache[sourcePath] || '';
     if (sourceEditor.innerText) {
       document
         .querySelector('#source-editor>pre')
@@ -676,22 +677,17 @@ function main() {
         .querySelector('#source-editor>pre')
         .setAttribute('data-line', '');
     }
-    if (currentFrame.fullname.endsWith('java')) {
+    if (sourcePath.endsWith('java')) {
       document.querySelector('#source-editor>pre>code').className =
         'language-java';
-    } else if (
-      currentFrame.fullname.endsWith('cpp') ||
-      currentFrame.fullname.endsWith('cc')
-    ) {
+    } else if (sourcePath.endsWith('cpp') || sourcePath.endsWith('cc')) {
       document.querySelector('#source-editor>pre>code').className =
         'language-cpp';
-    } else if (currentFrame.fullname.endsWith('c')) {
+    } else if (sourcePath.endsWith('c')) {
       document.querySelector('#source-editor>pre>code').className =
         'language-c';
     } else {
-      console.log(
-        'Unknown language for ' + currentFrame.fullname + '. defaulting to C++'
-      );
+      console.log('Unknown language for ' + sourcePath + '. defaulting to C++');
       document.querySelector('#source-editor>pre>code').className = '';
     }
     Prism.highlightElement(sourceEditor);
