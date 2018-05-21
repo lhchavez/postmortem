@@ -623,6 +623,7 @@ class Machine {
 }
 
 function main() {
+  let payload = JSON.parse(atob(window.location.hash.substring(1)));
   let graph = new GraphView(document.getElementById('svg'));
 
   function appendConsoleNode(contents, className) {
@@ -638,7 +639,7 @@ function main() {
   let assemblyEditor = document.querySelector('#assembly-editor>pre>code');
   let machine = new Machine();
 
-  let socket = new WebSocket('ws://localhost:8001');
+  let socket = new WebSocket('ws://localhost:' + payload.websocketPort);
   let currentFrame = {
     fullname: null,
     line: null,

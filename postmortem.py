@@ -375,19 +375,24 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO)
 
-    gdb_server = SimpleWebSocketServer('localhost', 8001,
+    gdb_server = SimpleWebSocketServer('localhost', 0,
                                        gdb_server_factory(args.binary,
                                                           args.core))
+    gdb_server_port = gdb_server.serversocket.getsockname()[1]
     websocket_thread = threading.Thread(target=gdb_server.serveforever,
                                         daemon=True)
     websocket_thread.start()
 
     socketserver.TCPServer.allow_reuse_address = True
-    http_server = socketserver.TCPServer(('localhost', 8000),
+    http_server = socketserver.TCPServer(('localhost', 0),
                                          http.server.SimpleHTTPRequestHandler)
+    http_port = http_server.socket.getsockname()[1]
     threading.Thread(target=http_server.serve_forever, daemon=True).start()
 
-    subprocess.check_call(['/usr/bin/xdg-open', 'http://localhost:8000'])
+    payload = base64.b64encode(json.dumps({'websocketPort': gdb_server_port}).encode('utf-8'))
+    subprocess.check_call([
+        '/usr/bin/xdg-open',
+        'http://localhost:%d#%s' % (http_port, payload.decode('utf-8'))])
 
     websocket_thread.join()
 
