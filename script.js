@@ -655,6 +655,7 @@ function main() {
     line: null,
     address: null,
   };
+  let currentThread = null;
   let payloadCount = 0;
   let promiseMapping = {};
 
@@ -665,6 +666,7 @@ function main() {
     return promiseMapping[payload.token].promise;
   }
   let sourceCache = {};
+  let threads = {};
   function onSourceReady() {
     const sourcePath = currentFrame.fullname || '<unknown>';
     sourceEditor.innerText = sourceCache[sourcePath] || '';
@@ -695,6 +697,23 @@ function main() {
       document.querySelector('#source-editor .line-highlight').scrollIntoView();
     }
   }
+  function onStackReady(frames, currentFrameIndex) {
+    let framesElement = document.querySelector('select[name="frame"]');
+    while (framesElement.firstChild) {
+      framesElement.removeChild(framesElement.firstChild);
+    }
+    for (const frame of frames) {
+      let frameElement = document.createElement('option');
+      frameElement.value = frame.level;
+      frameElement.appendChild(
+        document.createTextNode(frame.fullname + ':' + frame.line)
+      );
+      if (parseInt(frame.level) == currentFrameIndex) {
+        frameElement.selected = 'selected';
+      }
+      framesElement.appendChild(frameElement);
+    }
+  }
   function onAssemblyReady(currentAddress, insns) {
     let contents = '';
     let activeLine = 0;
@@ -723,8 +742,9 @@ function main() {
       graph.scrollIntoView(address);
     });
   }
-  function onThreadSelected(frame) {
-    currentFrame = frame;
+  function onThreadSelected(selectedThread, selectedFrame) {
+    currentThread = selectedThread;
+    currentFrame = selectedFrame;
     let cmd =
       '-data-disassemble -f ' +
       currentFrame.fullname +
@@ -786,17 +806,34 @@ function main() {
         stackElement.appendChild(rowElement);
       }
     });
+    if (threads[selectedThread.id].stack !== null) {
+      onStackReady(
+        threads[selectedThread.id].stack,
+        parseInt(currentFrame.level)
+      );
+    } else {
+      socketSend({
+        method: 'run',
+        command: '-stack-list-frames',
+      }).then(function(record) {
+        threads[selectedThread.id].stack = record.stack;
+        onStackReady(
+          threads[selectedThread.id].stack,
+          parseInt(currentFrame.level)
+        );
+      });
+    }
     if (sourceCache.hasOwnProperty(currentFrame.fullname)) {
       onSourceReady();
-      return;
+    } else {
+      socketSend({
+        method: 'get-source',
+        filename: currentFrame.fullname,
+      }).then(function(record) {
+        sourceCache[currentFrame.fullname] = record || '';
+        onSourceReady();
+      });
     }
-    socketSend({
-      method: 'get-source',
-      filename: currentFrame.fullname,
-    }).then(function(record) {
-      sourceCache[currentFrame.fullname] = record || '';
-      onSourceReady();
-    });
   }
   socket.onmessage = function(event) {
     let data = JSON.parse(event.data);
@@ -810,7 +847,7 @@ function main() {
       data.type == 'notify-async' &&
       data['class'] == 'thread-selected'
     ) {
-      onThreadSelected(data.output.frame);
+      onThreadSelected(data.output, data.output.frame);
     } else if (data.type == 'result') {
       if (
         typeof data.token === 'undefined' ||
@@ -833,10 +870,28 @@ function main() {
         return socketSend({ method: 'run', command: '-thread-info' });
       })
       .then(function(record) {
-        for (let i = 0; i < record.threads.length; ++i) {
-          if (record.threads[i].id != record['current-thread-id']) continue;
-          onThreadSelected(record.threads[i].frame);
+        let activeThread = null;
+        let threadSelect = document.querySelector('select[name="thread"]');
+        for (const thread of record.threads) {
+          let threadElement = document.createElement('option');
+          threadElement.value = thread.id;
+          threads[thread.id] = {
+            name: thread['target-id'],
+            defaultFrame: thread.frame,
+            stack: null,
+          };
+          let threadName = thread['target-id'];
+          if (thread.id == record['current-thread-id']) {
+            activeThread = thread;
+            threadElement.selected = 'selected';
+            threadName = '* ' + threadName;
+          } else {
+            threadName = '  ' + threadName;
+          }
+          threadElement.appendChild(document.createTextNode(threadName));
+          threadSelect.appendChild(threadElement);
         }
+        onThreadSelected(activeThread, activeThread.frame);
       });
   };
   assemblyEditor.addEventListener('source-address', function(ev) {
@@ -905,9 +960,38 @@ function main() {
     window.localStorage.setItem('preferences', JSON.stringify(preferences));
   }
 
+  function setThread(value) {
+    let threadIndex = parseInt(value);
+    socketSend({
+      method: 'run',
+      command: '-thread-select ' + threadIndex,
+    }).then(function(record) {
+      onThreadSelected(threads[threadIndex], threads[threadIndex].defaultFrame);
+    });
+  }
+
+  function setFrame(value) {
+    let frameIndex = parseInt(value);
+    socketSend({
+      method: 'run',
+      command: '-stack-select-frame ' + frameIndex,
+    }).then(function(record) {
+      onThreadSelected(
+        currentThread,
+        threads[currentThread.id].stack[frameIndex]
+      );
+    });
+  }
+
   document
     .querySelector('#gdb-console select[name="view"]')
     .addEventListener('change', ev => setView(ev.target.value));
+  document
+    .querySelector('#gdb-console select[name="thread"]')
+    .addEventListener('change', ev => setThread(ev.target.value));
+  document
+    .querySelector('#gdb-console select[name="frame"]')
+    .addEventListener('change', ev => setFrame(ev.target.value));
 
   // Restore preferences.
   let preferences = JSON.parse(
