@@ -164,18 +164,18 @@ class GraphView {
     while (graphNode.lastChild) {
       graphNode.removeChild(graphNode.lastChild);
     }
+    let nodes = [];
     this.instructionSpans = {};
     this.graph.clear();
     for (const addr in data) {
       const block = data[addr];
       let blockElm = createSVGNode('g');
+      nodes.push(blockElm);
       blockElm.classList.add('block');
       let addressWidth = 0;
       let mnemonicWidth = 0;
       let opWidth = 0;
-      for (let i = 0; i < block.instructions.length; i++) {
-        let ins = block.instructions[i];
-
+      for (const ins of block.instructions) {
         addressWidth = Math.max(addressWidth, ins.address.length);
         mnemonicWidth = Math.max(mnemonicWidth, ins.mnemonic.length);
         opWidth = Math.max(opWidth, ins.op.length);
@@ -213,8 +213,13 @@ class GraphView {
 
         blockElm.appendChild(blockTextElm);
       }
+
+      // Add the block to the svg graph node just to be able to get its
+      // bounding box.
       graphNode.appendChild(blockElm);
-      let blockTextBBox = blockElm.getBBox();
+      const blockTextBBox = blockElm.getBBox();
+      graphNode.removeChild(blockElm);
+
       let rectElm = createSVGNode('rect', {
         x: blockTextBBox.x - 5,
         y: blockTextBBox.y - 5,
@@ -262,7 +267,7 @@ class GraphView {
           height: block.subtreeBBox.height,
         });
         rectElm.setAttribute('class', 'bounding-box');
-        graphNode.appendChild(rectElm);
+        nodes.push(rectElm);
       }
     }
     for (let edge of this.graph.edges) {
@@ -283,8 +288,13 @@ class GraphView {
         'class',
         'edge ' + edge.type + (edge.back ? ' back-edge' : '')
       );
-      graphNode.appendChild(lineElm);
+      nodes.push(lineElm);
       edge.element = lineElm;
+    }
+
+    // With everything laid out, we can now add everything back.
+    for (const node of nodes) {
+      graphNode.appendChild(node);
     }
     this.maxWidth = graphNode.getBBox().width;
     this.maxHeight = graphNode.getBBox().height;
