@@ -17,7 +17,8 @@ import threading
 
 import capstone
 
-sys.path.append('simple-websocket-server')
+sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                             'simple-websocket-server'))
 
 # pylint: disable=import-error,wrong-import-position
 from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
@@ -354,11 +355,30 @@ class GdbServer(WebSocket):
         self._connection.send(b'-gdb-exit')
 
 
-def gdb_server_factory(gdb_path, gdb_args):
+class HTTPHandler(http.server.SimpleHTTPRequestHandler):
+    """A SimpleHTTPRequestHandler that serves from root instead of CWD."""
+
+    def __init__(self, root, server, sock, address):
+        self._cwd = os.getcwd()
+        self._root = root
+        super().__init__(server, sock, address)
+
+    def translate_path(self, path):
+        """Returns a path translated to the chosen directory."""
+        path = http.server.SimpleHTTPRequestHandler.translate_path(self, path)
+        return os.path.join(self._root, os.path.relpath(path, self._cwd))
+
+
+def _factory(cls, *cls_args, **cls_kwargs):
     """Factory for GdbServer websocket support."""
-    def _factory(*args, **kwargs):
-        return GdbServer(gdb_path, gdb_args, *args, **kwargs)
-    return _factory
+    def _wrapped_factory(*args, **kwargs):
+        merged_args = cls_args + args
+        merged_kwargs = {}
+        for src in (cls_kwargs, kwargs):
+            for k, v in src.items():
+                merged_kwargs[k] = v
+        return cls(*merged_args, *merged_kwargs)
+    return _wrapped_factory
 
 
 def main():
@@ -378,20 +398,22 @@ def main():
         logging.basicConfig(level=logging.INFO)
 
     gdb_server = SimpleWebSocketServer('localhost', 0,
-                                       gdb_server_factory(args.gdb_path,
-                                                          args.gdb_args))
+                                       _factory(GdbServer, args.gdb_path,
+                                                args.gdb_args))
     gdb_server_port = gdb_server.serversocket.getsockname()[1]
     websocket_thread = threading.Thread(target=gdb_server.serveforever,
                                         daemon=True)
     websocket_thread.start()
 
     socketserver.TCPServer.allow_reuse_address = True
-    http_server = socketserver.TCPServer(('localhost', 0),
-                                         http.server.SimpleHTTPRequestHandler)
+    http_server = socketserver.TCPServer(
+        ('localhost', 0),
+        _factory(HTTPHandler, os.path.dirname(os.path.realpath(__file__))))
     http_port = http_server.socket.getsockname()[1]
     threading.Thread(target=http_server.serve_forever, daemon=True).start()
 
-    payload = base64.b64encode(json.dumps({'websocketPort': gdb_server_port}).encode('utf-8'))
+    payload = base64.b64encode(
+        json.dumps({'websocketPort': gdb_server_port}).encode('utf-8'))
     subprocess.check_call([
         '/usr/bin/xdg-open',
         'http://localhost:%d#%s' % (http_port, payload.decode('utf-8'))])
