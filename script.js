@@ -242,6 +242,10 @@ class GraphView {
       }
     }
 
+    if (!this.graph.nodes.length) {
+      return;
+    }
+
     this.graph.layout();
     let minX = 1e99;
     for (let block of this.graph.nodes) {
@@ -348,7 +352,7 @@ class GraphView {
     for (let activePath of this.svg.querySelectorAll('path.active')) {
       activePath.classList.remove('active');
     }
-    if (address === null) {
+    if (address === null || !this.instructionSpans.hasOwnProperty(address)) {
       this.svg.classList.add('unselected');
       highlightElement.setAttribute('opacity', 0);
       return;
@@ -398,6 +402,9 @@ class GraphView {
 
   __scrollIntoView(address) {
     let element = this.instructionSpans[address];
+    if (!element) {
+      return;
+    }
     let elementBBox = element.getBoundingClientRect();
     let elementBBoxWidth =
       element.parentElement.getBoundingClientRect().width - 10;
@@ -729,6 +736,11 @@ function main() {
       .setAttribute('data-line', activeLine + 1);
     Prism.highlightElement(assemblyEditor);
     document.querySelector('#assembly-editor .line-highlight').scrollIntoView();
+    if (insns.length == 0) {
+      graph.render({});
+      return;
+    }
+
     let startAddress = parseInt(insns[0].address.substr(2), 16);
     let endAddress = parseInt(insns[insns.length - 1].address.substr(2), 16);
     socketSend({
@@ -745,15 +757,19 @@ function main() {
   function onThreadSelected(selectedThread, selectedFrame) {
     currentThread = selectedThread;
     currentFrame = selectedFrame;
-    let cmd =
-      '-data-disassemble -f ' +
-      currentFrame.fullname +
-      ' -l ' +
-      currentFrame.line +
-      ' -n -1 -- 0';
-    socketSend({ method: 'run', command: cmd }).then(function(record) {
-      onAssemblyReady(currentFrame.addr, record.asm_insns);
-    });
+    if (currentFrame.fullname) {
+      let cmd =
+        '-data-disassemble -f ' +
+        currentFrame.fullname +
+        ' -l ' +
+        currentFrame.line +
+        ' -n -1 -- 0';
+      socketSend({ method: 'run', command: cmd }).then(function(record) {
+        onAssemblyReady(currentFrame.addr, record.asm_insns);
+      });
+    } else {
+      onAssemblyReady(currentFrame.addr, []);
+    }
     socketSend({
       method: 'run',
       command: '-data-list-register-values --skip-unavailable x',
@@ -823,6 +839,9 @@ function main() {
         );
       });
     }
+    if (!currentFrame.fullname) {
+      sourceCache[currentFrame.fullname] = '';
+    }
     if (sourceCache.hasOwnProperty(currentFrame.fullname)) {
       onSourceReady();
     } else {
@@ -876,6 +895,7 @@ function main() {
           let threadElement = document.createElement('option');
           threadElement.value = thread.id;
           threads[thread.id] = {
+            id: thread.id,
             name: thread['target-id'],
             defaultFrame: thread.frame,
             stack: null,
@@ -886,7 +906,7 @@ function main() {
             threadElement.selected = 'selected';
             threadName = '* ' + threadName;
           } else {
-            threadName = '  ' + threadName;
+            threadName = '\u00A0 ' + threadName;
           }
           threadElement.appendChild(document.createTextNode(threadName));
           threadSelect.appendChild(threadElement);
