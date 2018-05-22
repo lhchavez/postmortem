@@ -97,9 +97,17 @@ def _prune_unreachable(blocks, address_range):
         del blocks[unreachable]
 
 
-def _disassemble(memory, address_range):
-    disassembler = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+def _disassemble(isa, memory, address_range):
+    if isa == 'x86':
+        disassembler = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+    elif isa == 'x86_84':
+        disassembler = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+    elif isa == 'aarch64':
+        disassembler = capstone.Cs(capstone.CS_ARCH_ARM64, capstone.CS_MODE_64)
+    elif isa == 'arm':
+        disassembler = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_32)
     disassembler.detail = True
+    disassembler.syntax = capstone.CS_OPT_SYNTAX_ATT
     code = base64.b16decode(memory, casefold=True)
 
     cuts, edges = _calculate_edges(disassembler, code, address_range)
@@ -307,14 +315,15 @@ class GdbServer(WebSocket):
                                      'record': record,
                                      'token': token}))
 
-    def _handle_disassemble_graph(self, address_range, token=None):
+    def _handle_disassemble_graph(self, isa, address_range, token=None):
         for message in self._connection.send(
                 b'-data-read-memory-bytes',
                 b'0x%x' % address_range[0],
                 b'%d' % (address_range[1] - address_range[0] + 32)):
             if message['type'] == 'result':
                 graph = _disassemble(
-                    message['record']['memory'][0]['contents'], address_range)
+                    isa, message['record']['memory'][0]['contents'],
+                    address_range)
                 self.sendMessage(json.dumps({'type': 'result',
                                              'record': graph,
                                              'token': token}))
@@ -340,7 +349,8 @@ class GdbServer(WebSocket):
             return
         if data['method'] == 'disassemble-graph':
             self._handle_disassemble_graph(
-                (data['startAddress'], data['endAddress']), token=token)
+                data['isa'], (data['startAddress'], data['endAddress']),
+                token=token)
             return
         logging.error('unhandled method %s', data)
 

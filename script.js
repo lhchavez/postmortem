@@ -745,6 +745,7 @@ function main() {
     let endAddress = parseInt(insns[insns.length - 1].address.substr(2), 16);
     socketSend({
       method: 'disassemble-graph',
+      isa: machine.isa,
       startAddress: startAddress,
       endAddress: endAddress,
     }).then(record => {
@@ -814,7 +815,7 @@ function main() {
 
         cellElement.className = 'right';
         cellElement.appendChild(document.createTextNode(offset.toString(16)));
-        offset += 8;
+        offset += machine.registerWidth;
         rowElement.appendChild(cellElement);
         cellElement = document.createElement('td');
         cellElement.appendChild(document.createTextNode(entry.data[0]));
