@@ -100,12 +100,15 @@ def _prune_unreachable(blocks, address_range):
 def _disassemble(isa, memory, address_range):
     if isa == 'x86':
         disassembler = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
-    elif isa == 'x86_84':
+    elif isa == 'x86_64':
         disassembler = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
     elif isa == 'aarch64':
         disassembler = capstone.Cs(capstone.CS_ARCH_ARM64, capstone.CS_MODE_64)
     elif isa == 'arm':
         disassembler = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_32)
+    else:
+        logging.error('Unknown ISA: %s', isa)
+        return {}
     disassembler.detail = True
     disassembler.syntax = capstone.CS_OPT_SYNTAX_ATT
     code = base64.b16decode(memory, casefold=True)
@@ -332,27 +335,30 @@ class GdbServer(WebSocket):
 
     def handleMessage(self):  # pylint: disable=invalid-name
         """Handles one WebSockets message."""
-        data = json.loads(self.data)
-        token = None
-        if 'token' in data:
-            token = int(data['token'])
-        if data['method'] == 'run':
-            self._handle_run_message(data['command'].encode('utf-8'),
-                                     token=token)
-            return
-        if data['method'] == 'interpreter-exec':
-            self._handle_interpreter_exec(data['command'].encode('utf-8'))
-            return
-        if data['method'] == 'get-source':
-            self._handle_get_source(data['filename'].encode('utf-8'),
-                                    token=token)
-            return
-        if data['method'] == 'disassemble-graph':
-            self._handle_disassemble_graph(
-                data['isa'], (data['startAddress'], data['endAddress']),
-                token=token)
-            return
-        logging.error('unhandled method %s', data)
+        try:
+            data = json.loads(self.data)
+            token = None
+            if 'token' in data:
+                token = int(data['token'])
+            if data['method'] == 'run':
+                self._handle_run_message(data['command'].encode('utf-8'),
+                                         token=token)
+                return
+            if data['method'] == 'interpreter-exec':
+                self._handle_interpreter_exec(data['command'].encode('utf-8'))
+                return
+            if data['method'] == 'get-source':
+                self._handle_get_source(data['filename'].encode('utf-8'),
+                                        token=token)
+                return
+            if data['method'] == 'disassemble-graph':
+                self._handle_disassemble_graph(
+                    data['isa'], (data['startAddress'], data['endAddress']),
+                    token=token)
+                return
+            logging.error('unhandled method %s', data)
+        except:  # pylint: disable=bare-except
+            logging.exception('Error handling request')
 
     def handleConnected(self):  # pylint: disable=invalid-name
         """Handles the WebSocket connected event."""
@@ -385,8 +391,8 @@ def _factory(cls, *cls_args, **cls_kwargs):
         merged_args = cls_args + args
         merged_kwargs = {}
         for src in (cls_kwargs, kwargs):
-            for k, v in src.items():
-                merged_kwargs[k] = v
+            for key, val in src.items():
+                merged_kwargs[key] = val
         return cls(*merged_args, *merged_kwargs)
     return _wrapped_factory
 
