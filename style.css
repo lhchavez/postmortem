@@ -6,29 +6,11 @@
 
 	--font: 9pt "Luculent Regular", monospace;
 }
-html, body {
-	padding: 0;
-	margin: 0;
-	width: 100%;
-	height: 100%;
-	background: var(--background-color);
-	color: var(--foreground-color);
-	font: var(--font);
-}
-input[type="text"], select {
-	background: var(--background-color);
-	color: var(--foreground-color);
-	font: var(--font);
-	border: 1px solid var(--border-color);
-}
-input[type="text"]:focus, select:focus {
-	border: 1px solid var(--selection-color);
-	outline: 0 none;
-}
 
 /* Graph */
 svg {
 	display: none;
+	font: var(--font);
 }
 svg * { pointer-events: all; }
 rect.block {
@@ -95,27 +77,6 @@ text.highlight tspan {
 	font-weight: bold;
 }
 
-/* Layout */
-.container {
-	display: flex;
-	position: relative;
-	width: 100%;
-	height: 100%;
-	overflow: hidden;
-}
-.container-column {
-	flex-direction: column;
-}
-.container-row {
-	flex-direction: row;
-}
-.container-column .item, container-row .item {
-	flex: 1 100%;
-}
-.navbar {
-	flex: 1 500px;
-}
-
 /* Editors */
 .right {
 	text-align: right;
@@ -126,14 +87,15 @@ code.language-assembly span.source-address {
 	text-decoration: underline;
 }
 
-.gdb-console {
-	width: 100%;
-	height: 200px;
-	min-height: 200px;
-	max-height: 200px;
-	overflow-y: auto;
-	white-space: pre;
+.gdb-console-container {
+	flex: 1;
+	background: #373b41;
 	background: #1d1f21;
+	overflow-y: auto;
+}
+.gdb-console {
+	white-space: pre;
+	font: var(--font);
 }
 .gdb-console .console {
 	color: #c5c8c6;
@@ -147,28 +109,31 @@ code.language-assembly span.source-address {
 .gdb-console .prompt {
 	color: #373b41;
 }
-#gdb-console {
-	background: #373b41;
-}
 
-#registers, #stack {
+.registers, .stack {
 	font: var(--font);
-	overflow: auto;
+	overflow-y: auto;
 	background: #1d1f21;
 	color: #c5c8c6;
 }
-#registers table td, #stack table td {
+.registers tr:nth-child(odd), .stack tr:nth-child(odd) {
+	background: #282c30;
+}
+.registers th, .stack th {
+	padding: 3px;
+}
+.registers td, .stack td {
 	overflow: none;
 	text-overflow: ellipsis;
 }
 
-#source-editor, #assembly-editor {
+.source-editor, .assembly-editor {
 	overflow: auto;
 }
-#source-editor>pre,
-#source-editor>pre>code,
-#assembly-editor>pre,
-#assembly-editor>pre>code {
+.source-editor>pre,
+.source-editor>pre>code,
+.assembly-editor>pre,
+.assembly-editor>pre>code {
 	height: 100%;
 	margin: 0;
 }

@@ -1,96 +1,45 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="h-100">
 <head>
-	<title>postmortem</title>
-	<script src="https://cdn.rawgit.com/dagrejs/dagre/v0.8.2/dist/dagre.min.js"></script>
-	<script src="prism.js" data-manual></script>
-	<link rel="stylesheet" href="prism.css" />
+	<meta charset="UTF-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<meta http-equiv="Content-Type" content="text/html;charset=utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 
-	<script src="graph.js"></script>
-	<script src="script.js"></script>
+	<title>postmortem</title>
+
+	<script type="text/javascript" src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+	<script type="text/javascript" src="https://golden-layout.com/assets/js/goldenlayout.min.js"></script>
+	<script type="text/javascript" src="https://cdn.rawgit.com/dagrejs/dagre/v0.8.2/dist/dagre.min.js"></script>
+	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js" integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q" crossorigin="anonymous"></script>
+	<script type="text/javascript" src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js" integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl" crossorigin="anonymous"></script>
+
+	<script type="text/javascript" src="prism.js" data-manual></script>
+	<script type="text/javascript" src="graph.js"></script>
+	<script type="text/javascript" src="script.js"></script>
+
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css" integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
 	<link rel="stylesheet" href="style.css" />
+	<link rel="stylesheet" href="prism.css" />
+	<link rel="stylesheet" href="https://golden-layout.com/assets/css/goldenlayout-base.css" />
+	<link rel="stylesheet" href="https://golden-layout.com/assets/css/goldenlayout-dark-theme.css" />
 </head>
-<body>
-	<div class="container container-column">
-		<div class="item container container-row">
-			<div class="item container container-row">
-				<svg class="item" id="svg" xmlns="http://www.w3.org/2000/svg"
-						 xmlns:xlink="http://www.w3.org/1999/xlink">
-					<defs>
-						<marker id="TriangleUnconditional" viewBox="0 0 10 10" refX="10" refY="5"
-										 markerWidth="6" markerHeight="6" orient="auto">
-							<path d="M 0 0 L 10 5 L 0 10 z" fill="#77c5d1" />
-						</marker>
-						<marker id="TriangleFallthrough" viewBox="0 0 10 10" refX="10" refY="5"
-										 markerWidth="6" markerHeight="6" orient="auto">
-							<path d="M 0 0 L 10 5 L 0 10 z" fill="#98c99b" />
-						</marker>
-						<marker id="TriangleJump" viewBox="0 0 10 10" refX="10" refY="5"
-										 markerWidth="6" markerHeight="6" orient="auto">
-							<path d="M 0 0 L 10 5 L 0 10 z" fill="#895f63" />
-						</marker>
-						<g id="ProgramControlFlowGraph"></g>
-					</defs>
-					<use id="MainView" href="#ProgramControlFlowGraph" x="0" y="0" viewBox="0 0 500 500"/>
-					<g id="MiniView" opacity="0.5">
-						<rect class="background" fill-opacity="0.2"/>
-						<use href="#ProgramControlFlowGraph"/>
-						<rect class="viewport" fill-opacity="0.2"/>
-					</g>
-					<g id="instruction-highlight">
-						<path d="M 0 0 L 8 4 L 0 8 z" fill="#fff" />
-						<rect fill-opacity="0.2" fill="#fff" />
-					</g>
-				</svg>
-				<div class="item" id="source-editor">
-					<pre class="line-numbers"><code class="language-cpp"></code></pre>
-				</div>
-				<div class="item" id="assembly-editor">
-					<pre><code class="language-assembly"></code></pre>
-				</div>
-			</div>
-			<div class="navbar container container-column">
-				<div class="item" id="registers">
-					<table>
-						<thead>
-							<th>Register</th>
-							<th>Value</th>
-						</thead>
-						<tbody>
-						</tbody>
-					</table>
-				</div>
-				<div class="item" id="stack">
-					<table>
-						<thead>
-							<th>Address</th>
-							<th>Offset</th>
-							<th>Value</th>
-						</thead>
-						<tbody>
-						</tbody>
-					</table>
-				</div>
-			</div>
-		</div>
-		<div class="gdb-console"></div>
-		<form id="gdb-console">
-			(gdb) <input type="text" name="command" size="100" autocomplete="off">
-			<label>View
-				<select name="view">
-					<option value="source" default>Source</option>
-					<option value="graph">Graph</option>
+<body class="d-flex flex-column h-100 bg-dark text-white">
+	<header>
+		<nav class="navbar navbar-dark bg-dark py-0">
+			<span class="navbar-brand">postmortem</span>
+			<form class="form-inline my-2 my-lg-0 d-inline-flex flex-row">
+				<label class="col-sm-2 col-form-label">Thread</label>
+				<select name="thread" class="form-control form-control-sm mr-sm-2">
 				</select>
-			</label>
-			<label>Thread
-				<select name="thread">
+				<label class="col-sm-2 col-form-label">Frame</label>
+				<select name="frame" class="form-control row mr-sm-2" style="max-width: 100px">
 				</select>
-			</label>
-			<label>Frame
-				<select name="frame">
-				</select>
-			</label>
-		</form>
-	</div>
+			</form>
+		</nav>
+	</header>
+	<main role="main" class="col px-0">
+		<section id="layout-root" class="h-100"></section>
+	</main>
 </body>
 </html>

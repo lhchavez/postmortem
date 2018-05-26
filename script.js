@@ -1,3 +1,5 @@
+'use strict';
+
 function Deferred() {
   this.resolve = null;
   this.reject = null;
@@ -107,6 +109,12 @@ class GraphView {
     this.svg.style.display = 'block';
     window.requestAnimationFrame(() => {
       this.visible = true;
+      if (
+        this.maxWidth != this.svg.clientWidth ||
+        this.maxHeight != this.svg.clientHeight
+      ) {
+        this.dirty = true;
+      }
       this.maxWidth = this.svg.clientWidth;
       this.maxHeight = this.svg.clientHeight;
       this.viewport = {
@@ -151,6 +159,14 @@ class GraphView {
     }
     this.__highlight(address, false);
     this.__scrollIntoView(address);
+  }
+
+  __getBoundingRect(element) {
+    let elementBBox = element.getBoundingClientRect();
+    let svgBBox = this.svg.getBoundingClientRect();
+    elementBBox.x -= svgBBox.x;
+    elementBBox.y -= svgBBox.y;
+    return elementBBox;
   }
 
   __render(data) {
@@ -304,6 +320,7 @@ class GraphView {
     this.maxHeight = graphNode.getBBox().height;
 
     // Update miniview.
+    if (!this.svg.clientWidth || !this.svg.clientHeight) return;
     const maxMiniViewSize = 200;
     this.miniViewScale = this.maxWidth > this.maxHeight
       ? maxMiniViewSize / this.maxWidth
@@ -361,7 +378,7 @@ class GraphView {
     highlightElement.setAttribute('opacity', 1.0);
 
     let element = this.instructionSpans[address];
-    let elementBBox = element.getBoundingClientRect();
+    let elementBBox = this.__getBoundingRect(element);
 
     let node = this.graph.getNode(this.instructionNodes[address]);
     node.element.classList.add('current');
@@ -374,8 +391,8 @@ class GraphView {
       this.graph.getNode(edge.to).element.classList.add('reachable');
     }
 
-    highlightElement.setAttribute('x', elementBBox.left);
-    highlightElement.setAttribute('y', elementBBox.top + 1);
+    highlightElement.setAttribute('x', elementBBox.x);
+    highlightElement.setAttribute('y', elementBBox.y + 1);
     highlightElement.setAttribute(
       'width',
       element.parentElement.getBoundingClientRect().width - 10
@@ -391,9 +408,9 @@ class GraphView {
       highlightArrow.setAttribute(
         'transform',
         'translate(' +
-          (elementBBox.left - highlightArrowBBox.width - 8) +
+          (elementBBox.x - highlightArrowBBox.width - 8) +
           ', ' +
-          (elementBBox.top +
+          (elementBBox.y +
             (elementBBox.height - highlightArrowBBox.height) / 2.0) +
           ')'
       );
@@ -405,12 +422,12 @@ class GraphView {
     if (!element) {
       return;
     }
-    let elementBBox = element.getBoundingClientRect();
+    let elementBBox = this.__getBoundingRect(element);
     let elementBBoxWidth =
       element.parentElement.getBoundingClientRect().width - 10;
     this.__moveViewport(
-      elementBBox.left + elementBBoxWidth / 2.0 - this.svg.clientWidth / 2.0,
-      elementBBox.top + elementBBox.height / 2.0 - this.svg.clientHeight / 2.0
+      elementBBox.x + elementBBoxWidth / 2.0 - this.svg.clientWidth / 2.0,
+      elementBBox.y + elementBBox.height / 2.0 - this.svg.clientHeight / 2.0
     );
     this.__updateViewBox();
   }
@@ -485,14 +502,14 @@ class GraphView {
   __findAddressAtCoordinates(x, y) {
     for (let address of Object.keys(this.instructionSpans)) {
       let element = this.instructionSpans[address];
-      let elementBBox = element.getBoundingClientRect();
+      let elementBBox = this.__getBoundingRect(element);
       let elementBBoxWidth =
         element.parentElement.getBoundingClientRect().width - 10;
 
       if (
-        elementBBox.left <= x &&
-        x <= elementBBox.left + elementBBoxWidth &&
-        (elementBBox.top <= y && y <= elementBBox.bottom)
+        elementBBox.x <= x &&
+        x <= elementBBox.x + elementBBoxWidth &&
+        (elementBBox.y <= y && y <= elementBBox.y + elementBBox.height)
       ) {
         return address;
       }
@@ -641,233 +658,37 @@ class Machine {
 
 function main() {
   let payload = JSON.parse(atob(window.location.hash.substring(1)));
-  let graph = new GraphView(document.getElementById('svg'));
-
-  function appendConsoleNode(contents, className) {
-    let consoleDiv = document.querySelector('.gdb-console');
-    let node = document.createElement('span');
-    node.className = className;
-    node.appendChild(document.createTextNode(contents));
-    consoleDiv.appendChild(node);
-    node.scrollIntoView();
-  }
-
-  let sourceEditor = document.querySelector('#source-editor>pre>code');
-  let assemblyEditor = document.querySelector('#assembly-editor>pre>code');
   let machine = new Machine();
-
-  let socket = new WebSocket('ws://localhost:' + payload.websocketPort);
+  let threads = {};
   let currentFrame = {
     fullname: null,
     line: null,
     address: null,
   };
   let currentThread = null;
+
+  let socket = new WebSocket('ws://localhost:' + payload.websocketPort);
   let payloadCount = 0;
   let promiseMapping = {};
-
   function socketSend(payload) {
     payload.token = ++payloadCount;
     socket.send(JSON.stringify(payload));
     promiseMapping[payload.token] = new Deferred();
     return promiseMapping[payload.token].promise;
   }
-  let sourceCache = {};
-  let threads = {};
-  function onSourceReady() {
-    const sourcePath = currentFrame.fullname || '<unknown>';
-    sourceEditor.innerText = sourceCache[sourcePath] || '';
-    if (sourceEditor.innerText) {
-      document
-        .querySelector('#source-editor>pre')
-        .setAttribute('data-line', currentFrame.line);
-    } else {
-      document
-        .querySelector('#source-editor>pre')
-        .setAttribute('data-line', '');
-    }
-    if (sourcePath.endsWith('java')) {
-      document.querySelector('#source-editor>pre>code').className =
-        'language-java';
-    } else if (sourcePath.endsWith('cpp') || sourcePath.endsWith('cc')) {
-      document.querySelector('#source-editor>pre>code').className =
-        'language-cpp';
-    } else if (sourcePath.endsWith('c')) {
-      document.querySelector('#source-editor>pre>code').className =
-        'language-c';
-    } else {
-      console.log('Unknown language for ' + sourcePath + '. defaulting to C++');
-      document.querySelector('#source-editor>pre>code').className = '';
-    }
-    Prism.highlightElement(sourceEditor);
-    if (sourceEditor.innerText) {
-      document.querySelector('#source-editor .line-highlight').scrollIntoView();
-    }
-  }
-  function onStackReady(frames, currentFrameIndex) {
-    let framesElement = document.querySelector('select[name="frame"]');
-    while (framesElement.firstChild) {
-      framesElement.removeChild(framesElement.firstChild);
-    }
-    for (const frame of frames) {
-      let frameElement = document.createElement('option');
-      frameElement.value = frame.level;
-      frameElement.appendChild(
-        document.createTextNode(frame.fullname + ':' + frame.line)
-      );
-      if (parseInt(frame.level) == currentFrameIndex) {
-        frameElement.selected = 'selected';
-      }
-      framesElement.appendChild(frameElement);
-    }
-  }
-  function onAssemblyReady(currentAddress, insns) {
-    let contents = '';
-    let activeLine = 0;
-    for (let i = 0; i < insns.length; i++) {
-      contents += insns[i].address.substring(2) + ' ' + insns[i].inst + '\n';
-      if (insns[i].address == currentAddress) {
-        activeLine = i;
-      }
-    }
-    assemblyEditor.innerText = contents;
-    document
-      .querySelector('#assembly-editor>pre')
-      .setAttribute('data-line', activeLine + 1);
-    Prism.highlightElement(assemblyEditor);
-    document.querySelector('#assembly-editor .line-highlight').scrollIntoView();
-    if (insns.length == 0) {
-      graph.render({});
-      return;
-    }
-
-    let startAddress = parseInt(insns[0].address.substr(2), 16);
-    let endAddress = parseInt(insns[insns.length - 1].address.substr(2), 16);
-    socketSend({
-      method: 'disassemble-graph',
-      isa: machine.isa,
-      startAddress: startAddress,
-      endAddress: endAddress,
-    }).then(record => {
-      graph.render(record);
-      let address = parseInt(currentAddress.substring(2), 16);
-      graph.highlight(address);
-      graph.scrollIntoView(address);
-    });
-  }
-  function onThreadSelected(selectedThread, selectedFrame) {
-    currentThread = selectedThread;
-    currentFrame = selectedFrame;
-    if (currentFrame.fullname) {
-      let cmd =
-        '-data-disassemble -f ' +
-        currentFrame.fullname +
-        ' -l ' +
-        currentFrame.line +
-        ' -n -1 -- 0';
-      socketSend({ method: 'run', command: cmd }).then(function(record) {
-        onAssemblyReady(currentFrame.addr, record.asm_insns);
-      });
-    } else {
-      onAssemblyReady(currentFrame.addr, []);
-    }
-    socketSend({
-      method: 'run',
-      command: '-data-list-register-values --skip-unavailable x',
-    }).then(function(record) {
-      let registersElement = document.querySelector('#registers tbody');
-      while (registersElement.firstChild) {
-        registersElement.removeChild(registersElement.firstChild);
-      }
-      for (let i = 0; i < record['register-values'].length; i++) {
-        let reg = record['register-values'][i];
-        if (parseInt(reg.number) > machine.registerNames.length) {
-          continue;
-        }
-        let rowElement = document.createElement('tr');
-        let cellElement = document.createElement('td');
-        cellElement.appendChild(
-          document.createTextNode(machine.registerNames[parseInt(reg.number)])
-        );
-        rowElement.appendChild(cellElement);
-        cellElement = document.createElement('td');
-        cellElement.appendChild(document.createTextNode(reg.value));
-        rowElement.appendChild(cellElement);
-        registersElement.appendChild(rowElement);
-      }
-    });
-    socketSend({
-      method: 'run',
-      command: machine.gdbStackCommand,
-    }).then(function(record) {
-      let stackElement = document.querySelector('#stack tbody');
-      while (stackElement.firstChild) {
-        stackElement.removeChild(stackElement.firstChild);
-      }
-      let offset = -machine.stackRedZone;
-      for (let entry of record['memory']) {
-        let rowElement = document.createElement('tr');
-        let cellElement = document.createElement('td');
-
-        cellElement.appendChild(document.createTextNode(entry.addr));
-        rowElement.appendChild(cellElement);
-        cellElement = document.createElement('td');
-
-        cellElement.className = 'right';
-        cellElement.appendChild(document.createTextNode(offset.toString(16)));
-        offset += machine.registerWidth;
-        rowElement.appendChild(cellElement);
-        cellElement = document.createElement('td');
-        cellElement.appendChild(document.createTextNode(entry.data[0]));
-        rowElement.appendChild(cellElement);
-        stackElement.appendChild(rowElement);
-      }
-    });
-    if (threads[selectedThread.id].stack !== null) {
-      onStackReady(
-        threads[selectedThread.id].stack,
-        parseInt(currentFrame.level)
-      );
-    } else {
-      socketSend({
-        method: 'run',
-        command: '-stack-list-frames',
-      }).then(function(record) {
-        threads[selectedThread.id].stack = record.stack;
-        onStackReady(
-          threads[selectedThread.id].stack,
-          parseInt(currentFrame.level)
-        );
-      });
-    }
-    if (!currentFrame.fullname) {
-      sourceCache[currentFrame.fullname] = '';
-    }
-    if (sourceCache.hasOwnProperty(currentFrame.fullname)) {
-      onSourceReady();
-    } else {
-      socketSend({
-        method: 'get-source',
-        filename: currentFrame.fullname,
-      }).then(function(record) {
-        sourceCache[currentFrame.fullname] = record || '';
-        onSourceReady();
-      });
-    }
-  }
   socket.onmessage = function(event) {
     let data = JSON.parse(event.data);
     if (data.type == 'console-stream') {
-      appendConsoleNode(data.payload, 'console');
+      layout.eventHub.emit('consoleAdded', data.payload, 'console');
     } else if (data.type == 'log-stream') {
-      appendConsoleNode(data.payload, 'log');
+      layout.eventHub.emit('consoleAdded', data.payload, 'log');
     } else if (data.type == 'error-stream') {
-      appendConsoleNode(data.payload, 'error');
+      layout.eventHub.emit('consoleAdded', data.payload, 'error');
     } else if (
       data.type == 'notify-async' &&
       data['class'] == 'thread-selected'
     ) {
-      onThreadSelected(data.output, data.output.frame);
+      layout.eventHub.emit('threadSelected', data.output, data.output.frame);
     } else if (data.type == 'result') {
       if (
         typeof data.token === 'undefined' ||
@@ -885,11 +706,11 @@ function main() {
   };
   socket.onopen = function(event) {
     socketSend({ method: 'run', command: '-data-list-register-names' })
-      .then(function(record) {
+      .then(record => {
         machine.registerNames = record['register-names'];
         return socketSend({ method: 'run', command: '-thread-info' });
       })
-      .then(function(record) {
+      .then(record => {
         let activeThread = null;
         let threadSelect = document.querySelector('select[name="thread"]');
         for (const thread of record.threads) {
@@ -912,20 +733,371 @@ function main() {
           threadElement.appendChild(document.createTextNode(threadName));
           threadSelect.appendChild(threadElement);
         }
-        onThreadSelected(activeThread, activeThread.frame);
+        layout.eventHub.emit(
+          'threadSelected',
+          activeThread,
+          activeThread.frame
+        );
       });
   };
-  assemblyEditor.addEventListener('source-address', function(ev) {
-    graph.scrollIntoView(ev.detail.address);
-  });
 
-  let cmdHistory = [];
-  let cmdHistoryIdx = 0;
-  document
-    .querySelector('#gdb-console')
-    .addEventListener('submit', function(ev) {
+  const goldenLayoutSettings = {
+    content: [
+      {
+        type: 'column',
+        content: [
+          {
+            type: 'row',
+            content: [
+              {
+                type: 'component',
+                componentName: 'control-flow-graph',
+                componentState: {},
+                id: 'control-flow-graph',
+                title: 'Control Flow Graph',
+                isCloseable: false,
+              },
+              {
+                type: 'column',
+                content: [
+                  {
+                    type: 'component',
+                    componentName: 'source-editor',
+                    componentState: {},
+                    id: 'source-editor',
+                    title: 'Source',
+                    isCloseable: false,
+                  },
+                  {
+                    type: 'component',
+                    componentName: 'disassembly',
+                    componentState: {},
+                    id: 'disassembly',
+                    title: 'Disassembly',
+                    isCloseable: false,
+                  },
+                ],
+              },
+              {
+                type: 'column',
+                content: [
+                  {
+                    type: 'component',
+                    componentName: 'registers',
+                    componentState: {},
+                    id: 'registers',
+                    title: 'Registers',
+                    isCloseable: false,
+                  },
+                  {
+                    type: 'component',
+                    componentName: 'stack',
+                    componentState: {},
+                    id: 'stack',
+                    title: 'Stack',
+                    isCloseable: false,
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            type: 'component',
+            componentName: 'console',
+            componentState: {},
+            id: 'console',
+            title: 'Console',
+            isCloseable: false,
+            height: 20,
+          },
+        ],
+      },
+    ],
+  };
+
+  const layout = new GoldenLayout(
+    goldenLayoutSettings,
+    document.getElementById('layout-root')
+  );
+
+  layout.registerComponent('control-flow-graph', function(container, state) {
+    let svgNode = $(
+      `<svg class="h-100 w-100" xmlns="http://www.w3.org/2000/svg"
+           xmlns:xlink="http://www.w3.org/1999/xlink">
+        <defs>
+          <marker id="TriangleUnconditional" viewBox="0 0 10 10" refX="10" refY="5"
+                   markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#77c5d1" />
+          </marker>
+          <marker id="TriangleFallthrough" viewBox="0 0 10 10" refX="10" refY="5"
+                   markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#98c99b" />
+          </marker>
+          <marker id="TriangleJump" viewBox="0 0 10 10" refX="10" refY="5"
+                   markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#895f63" />
+          </marker>
+          <g id="ProgramControlFlowGraph"></g>
+        </defs>
+        <use id="MainView" href="#ProgramControlFlowGraph" x="0" y="0" viewBox="0 0 500 500"/>
+        <g id="MiniView" opacity="0.5">
+          <rect class="background" fill-opacity="0.2"/>
+          <use href="#ProgramControlFlowGraph"/>
+          <rect class="viewport" fill-opacity="0.2"/>
+        </g>
+        <g id="instruction-highlight">
+          <path d="M 0 0 L 8 4 L 0 8 z" fill="#fff" />
+          <rect fill-opacity="0.2" fill="#fff" />
+        </g>
+      </svg>`
+    );
+    let graph = null;
+    container.getElement().append(svgNode);
+    container.on('open', () => {
+      graph = new GraphView(svgNode[0]);
+      graph.show();
+      layout.eventHub.on('graphReady', (data, address) => {
+        graph.render(data);
+        if (!address) return;
+        graph.highlight(address);
+        graph.scrollIntoView(address);
+      });
+    });
+    container.on('resize', () => {
+      if (!graph) return;
+      graph.show();
+    });
+    layout.eventHub.on('addressSelected', address => {
+      if (!graph) return;
+      graph.scrollIntoView(address);
+    });
+  });
+  layout.registerComponent('source-editor', function(container, state) {
+    let editorNode = $(
+      `<div class="source-editor h-100 w-100">
+        <pre class="line-numbers"><code class="language-cpp"></code></pre>
+      </div>`
+    );
+    let sourcePreNode = editorNode[0].querySelector('pre');
+    let sourceEditorNode = editorNode[0].querySelector('code');
+    let currentSource = '';
+    container.getElement().append(editorNode);
+
+    function redraw() {
+      sourceEditorNode.innerText = currentSource;
+      if (currentSource) {
+        sourcePreNode.setAttribute('data-line', currentFrame.line);
+      } else {
+        sourcePreNode.setAttribute('data-line', '');
+      }
+      Prism.highlightElement(sourceEditorNode);
+      let highlight = sourcePreNode.querySelector('.line-highlight');
+      if (highlight) highlight.scrollIntoView();
+    }
+    container.on('show', () => window.requestAnimationFrame(() => redraw()));
+
+    let sourceCache = {};
+    layout.eventHub.on('fileChanged', sourcePath => {
+      if (!sourcePath) {
+        sourcePath = '<unknown>';
+        sourceCache[sourcePath] = '';
+      }
+      container.setTitle(sourcePath);
+      if (sourceCache.hasOwnProperty(sourcePath)) {
+        layout.eventHub.emit(
+          'sourceReady',
+          sourcePath,
+          sourceCache[sourcePath]
+        );
+      } else {
+        socketSend({
+          method: 'get-source',
+          filename: sourcePath,
+        }).then(record => {
+          sourceCache[sourcePath] = record || '';
+          layout.eventHub.emit(
+            'sourceReady',
+            sourcePath,
+            sourceCache[sourcePath]
+          );
+        });
+      }
+    });
+    layout.eventHub.on('sourceReady', (sourcePath, contents) => {
+      currentSource = contents;
+      if (sourcePath.endsWith('java')) {
+        sourceEditorNode.className = 'language-java';
+      } else if (sourcePath.endsWith('cpp') || sourcePath.endsWith('cc')) {
+        sourceEditorNode.className = 'language-cpp';
+      } else if (sourcePath.endsWith('c')) {
+        sourceEditorNode.className = 'language-c';
+      } else {
+        console.log(
+          'Unknown language for ' + sourcePath + '. defaulting to C++'
+        );
+        sourceEditorNode.className = '';
+      }
+      redraw();
+    });
+  });
+  layout.registerComponent('disassembly', function(container, state) {
+    let assemblyNode = $(
+      `<div class="assembly-editor w-100 h-100">
+        <pre><code class="language-assembly"></code></pre>
+      </div>`
+    );
+    let assemblyPreNode = assemblyNode[0].querySelector('pre');
+    container.getElement().append(assemblyNode);
+    let assemblyEditorNode = assemblyNode[0].querySelector('code');
+    layout.eventHub.on('assemblyReady', (currentAddress, insns) => {
+      container.setTitle(currentFrame.func || 'Disassembly');
+      let contents = '';
+      let activeLine = 0;
+      for (let i = 0; i < insns.length; i++) {
+        contents += insns[i].address.substring(2) + ' ' + insns[i].inst + '\n';
+        if (insns[i].address == currentAddress) {
+          activeLine = i;
+        }
+      }
+      assemblyEditorNode.innerText = contents;
+      assemblyPreNode.setAttribute('data-line', activeLine + 1);
+      Prism.highlightElement(assemblyEditorNode);
+      let highlight = assemblyPreNode.querySelector('.line-highlight');
+      if (highlight) highlight.scrollIntoView();
+      if (insns.length == 0) {
+        layout.eventHub.emit('graphReady', {}, 0);
+        return;
+      }
+
+      let startAddress = parseInt(insns[0].address.substr(2), 16);
+      let endAddress = parseInt(insns[insns.length - 1].address.substr(2), 16);
+      socketSend({
+        method: 'disassemble-graph',
+        isa: machine.isa,
+        startAddress: startAddress,
+        endAddress: endAddress,
+      }).then(record => {
+        let address = parseInt(currentAddress.substring(2), 16);
+        layout.eventHub.emit('graphReady', record, address);
+      });
+    });
+    assemblyEditorNode.addEventListener('source-address', ev =>
+      layout.eventHub.emit('addressSelected', ev.detail.address)
+    );
+  });
+  layout.registerComponent('registers', function(container, state) {
+    let registersNode = $(
+      `<div class="registers w-100 h-100">
+        <table class="w-100">
+          <thead>
+            <th>Register</th>
+            <th>Value</th>
+          </thead>
+          <tbody>
+          </tbody>
+        </table>
+      </div>`
+    );
+    container.getElement().append(registersNode);
+    layout.eventHub.on('registersReady', record => {
+      let registersElement = registersNode[0].querySelector('tbody');
+      while (registersElement.firstChild) {
+        registersElement.removeChild(registersElement.firstChild);
+      }
+      for (let i = 0; i < record['register-values'].length; i++) {
+        let reg = record['register-values'][i];
+        if (parseInt(reg.number) > machine.registerNames.length) {
+          continue;
+        }
+        let rowElement = document.createElement('tr');
+        let cellElement = document.createElement('td');
+        cellElement.appendChild(
+          document.createTextNode(machine.registerNames[parseInt(reg.number)])
+        );
+        rowElement.appendChild(cellElement);
+        cellElement = document.createElement('td');
+        cellElement.appendChild(document.createTextNode(reg.value));
+        rowElement.appendChild(cellElement);
+        registersElement.appendChild(rowElement);
+      }
+    });
+  });
+  layout.registerComponent('stack', function(container, state) {
+    let stackNode = $(
+      `<div class="stack w-100 h-100">
+        <table class="w-100">
+          <thead>
+            <th>Address</th>
+            <th>Offset</th>
+            <th>Value</th>
+          </thead>
+          <tbody>
+          </tbody>
+        </table>
+      </div>`
+    );
+    container.getElement().append(stackNode);
+    layout.eventHub.on('stackDumpReady', record => {
+      let stackElement = stackNode[0].querySelector('tbody');
+      while (stackElement.firstChild) {
+        stackElement.removeChild(stackElement.firstChild);
+      }
+      let offset = -machine.stackRedZone;
+      for (let entry of record['memory']) {
+        let rowElement = document.createElement('tr');
+        let cellElement = document.createElement('td');
+
+        cellElement.appendChild(document.createTextNode(entry.addr));
+        rowElement.appendChild(cellElement);
+        cellElement = document.createElement('td');
+
+        cellElement.className = 'right';
+        cellElement.appendChild(
+          document.createTextNode(
+            (offset >= 0 ? '0x' : '-0x') + Math.abs(offset).toString(16)
+          )
+        );
+        offset += machine.registerWidth;
+        rowElement.appendChild(cellElement);
+        cellElement = document.createElement('td');
+        cellElement.appendChild(document.createTextNode(entry.data[0]));
+        rowElement.appendChild(cellElement);
+        stackElement.appendChild(rowElement);
+      }
+    });
+  });
+  layout.registerComponent('console', function(container, state) {
+    let cmdHistory = [];
+    let cmdHistoryIdx = 0;
+
+    const consoleNode = $(
+      `<div class="d-flex flex-column h-100 w-100">
+        <div class="gdb-console-container">
+          <div class="h-100 w-100 gdb-console"></div>
+        </div>
+        <form class="d-flex flex-row">
+          <label class="p-1">(gdb) </label>
+          <input type="text" name="command" autocomplete="off" class="form-control p-1">
+        </form>
+      </div>`
+    );
+    const consoleElement = consoleNode[0].querySelector('.gdb-console');
+    const inputElement = consoleNode[0].querySelector('input');
+    const commandElement = consoleNode[0].querySelector('form');
+    container.getElement().append(consoleNode);
+
+    function appendConsoleNode(contents, className) {
+      let node = document.createElement('span');
+      node.className = className;
+      node.appendChild(document.createTextNode(contents));
+      consoleElement.appendChild(node);
+      node.scrollIntoView();
+    }
+
+    commandElement.addEventListener('submit', ev => {
       ev.preventDefault();
-      let cmd = document.querySelector('#gdb-console input').value;
+      let inputElement = ev.target.querySelector('input');
+      let cmd = inputElement.value;
       if (cmd) {
         cmdHistory.push(cmd);
         cmdHistoryIdx = cmdHistory.length;
@@ -934,93 +1106,130 @@ function main() {
       } else {
         return;
       }
-      appendConsoleNode('(gdb) ' + cmd + '\n', 'prompt');
-      document.querySelector('#gdb-console input').value = '';
+      layout.eventHub.emit('consoleAdded', '(gdb) ' + cmd + '\n', 'prompt');
+      inputElement.value = '';
       socketSend({ method: 'run', command: cmd });
     });
 
-  document
-    .querySelector('#gdb-console input')
-    .addEventListener('keydown', function(ev) {
+    inputElement.addEventListener('keydown', ev => {
       if (ev.key == 'ArrowUp') {
         ev.preventDefault();
         if (cmdHistoryIdx > 0) {
-          document.querySelector('#gdb-console input').value =
-            cmdHistory[--cmdHistoryIdx];
+          inputElement.value = cmdHistory[--cmdHistoryIdx];
         }
       } else if (ev.key == 'ArrowDown') {
         ev.preventDefault();
         if (cmdHistoryIdx < cmdHistory.length) {
-          document.querySelector('#gdb-console input').value =
-            cmdHistory[++cmdHistoryIdx] || '';
+          inputElement.value = cmdHistory[++cmdHistoryIdx] || '';
         } else {
-          document.querySelector('#gdb-console input').value = '';
+          inputElement.value = '';
         }
       }
     });
+    layout.eventHub.on('consoleAdded', appendConsoleNode);
+    container.on('open', () => inputElement.focus());
+  });
 
-  function setView(value) {
-    let viewElement = document.querySelector(
-      '#gdb-console select[name="view"]'
-    );
-    if (viewElement.value != value) {
-      viewElement.value = value;
-    }
-    if (value == 'graph') {
-      graph.show();
-      document.getElementById('source-editor').style.display = 'none';
+  layout.init();
+
+  layout.eventHub.on('threadSelected', (selectedThread, selectedFrame) => {
+    currentThread = selectedThread;
+    currentFrame = selectedFrame;
+    if (currentFrame.fullname) {
+      let cmd =
+        '-data-disassemble -f ' +
+        currentFrame.fullname +
+        ' -l ' +
+        currentFrame.line +
+        ' -n -1 -- 0';
+      socketSend({ method: 'run', command: cmd }).then(record => {
+        layout.eventHub.emit(
+          'assemblyReady',
+          currentFrame.addr,
+          record.asm_insns
+        );
+      });
     } else {
-      graph.hide();
-      document.getElementById('source-editor').style.display = 'block';
-      window.requestAnimationFrame(onSourceReady);
+      layout.eventHub.emit('assemblyReady', currentFrame.addr, []);
     }
-    if (value == preferences.view) {
-      return;
-    }
-    preferences.view = value;
-    window.localStorage.setItem('preferences', JSON.stringify(preferences));
-  }
-
-  function setThread(value) {
-    let threadIndex = parseInt(value);
     socketSend({
       method: 'run',
-      command: '-thread-select ' + threadIndex,
-    }).then(function(record) {
-      onThreadSelected(threads[threadIndex], threads[threadIndex].defaultFrame);
-    });
-  }
-
-  function setFrame(value) {
-    let frameIndex = parseInt(value);
+      command: '-data-list-register-values --skip-unavailable x',
+    }).then(record => layout.eventHub.emit('registersReady', record));
     socketSend({
       method: 'run',
-      command: '-stack-select-frame ' + frameIndex,
-    }).then(function(record) {
-      onThreadSelected(
-        currentThread,
-        threads[currentThread.id].stack[frameIndex]
+      command: machine.gdbStackCommand,
+    }).then(record => layout.eventHub.emit('stackDumpReady', record));
+    if (threads[selectedThread.id].stack !== null) {
+      layout.eventHub.emit(
+        'stackReady',
+        threads[selectedThread.id].stack,
+        parseInt(currentFrame.level)
       );
+    } else {
+      socketSend({
+        method: 'run',
+        command: '-stack-list-frames',
+      }).then(record => {
+        threads[selectedThread.id].stack = record.stack;
+        layout.eventHub.emit(
+          'stackReady',
+          threads[selectedThread.id].stack,
+          parseInt(currentFrame.level)
+        );
+      });
+    }
+    layout.eventHub.emit('fileChanged', currentFrame.fullname);
+  });
+  layout.eventHub.on('stackReady', (frames, currentFrameIndex) => {
+    let framesElement = document.querySelector('select[name="frame"]');
+    while (framesElement.firstChild) {
+      framesElement.removeChild(framesElement.firstChild);
+    }
+    for (const frame of frames) {
+      let frameElement = document.createElement('option');
+      frameElement.value = frame.level;
+      frameElement.appendChild(
+        document.createTextNode(frame.fullname + ':' + frame.line)
+      );
+      if (parseInt(frame.level) == currentFrameIndex) {
+        frameElement.selected = 'selected';
+      }
+      framesElement.appendChild(frameElement);
+    }
+  });
+
+  document
+    .querySelector('select[name="thread"]')
+    .addEventListener('change', ev => {
+      let threadIndex = parseInt(ev.target.value);
+      socketSend({
+        method: 'run',
+        command: '-thread-select ' + threadIndex,
+      }).then(record => {
+        layout.eventHub.emit(
+          'threadSelected',
+          threads[threadIndex],
+          threads[threadIndex].defaultFrame
+        );
+      });
     });
-  }
-
   document
-    .querySelector('#gdb-console select[name="view"]')
-    .addEventListener('change', ev => setView(ev.target.value));
-  document
-    .querySelector('#gdb-console select[name="thread"]')
-    .addEventListener('change', ev => setThread(ev.target.value));
-  document
-    .querySelector('#gdb-console select[name="frame"]')
-    .addEventListener('change', ev => setFrame(ev.target.value));
-
-  // Restore preferences.
-  let preferences = JSON.parse(
-    window.localStorage.getItem('preferences') || '{"view":"source"}'
-  );
-  setView(preferences.view);
-
-  document.querySelector('#gdb-console input').focus();
+    .querySelector('select[name="frame"]')
+    .addEventListener('change', ev => {
+      let frameIndex = parseInt(ev.target.value);
+      socketSend({
+        method: 'run',
+        command: '-stack-select-frame ' + frameIndex,
+      }).then(record => {
+        layout.eventHub.emit(
+          'threadSelected',
+          currentThread,
+          threads[currentThread.id].stack[frameIndex]
+        );
+      });
+    });
+  window.addEventListener('resize', ev => layout.updateSize());
 }
 
 document.addEventListener('DOMContentLoaded', main, false);
