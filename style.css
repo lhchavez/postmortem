@@ -94,7 +94,7 @@ code.language-assembly span.source-address {
 	overflow-y: auto;
 }
 .gdb-console {
-	white-space: pre;
+	white-space: pre-wrap;
 	font: var(--font);
 }
 .gdb-console .console {
