@@ -525,6 +525,14 @@ class GraphView {
         this.mouseanchor.y / this.viewport.scale + this.viewport.y
       );
       this.__highlight(clickedAddress);
+      this.svg.dispatchEvent(
+        new CustomEvent('address-selected', {
+          bubbles: true,
+          detail: {
+            address: clickedAddress ? parseInt(clickedAddress) : null,
+          },
+        })
+      );
     }
     this.mousedown = false;
     this.mouseanchor = null;
@@ -862,6 +870,9 @@ function main() {
         graph.highlight(address);
         graph.scrollIntoView(address);
       });
+      svgNode[0].addEventListener('address-selected', ev =>
+        layout.eventHub.emit('addressSelected', ev.detail.address)
+      );
     });
     container.on('resize', () => {
       if (!graph) return;
@@ -984,6 +995,18 @@ function main() {
     assemblyEditorNode.addEventListener('source-address', ev =>
       layout.eventHub.emit('addressSelected', ev.detail.address)
     );
+    layout.eventHub.on('addressSelected', address => {
+      if (address == null) return;
+      const hexAddress = Number(address).toString(16);
+      const addressElements = assemblyEditorNode.querySelectorAll(
+        '.source-address'
+      );
+      for (let element of addressElements) {
+        if (!element.textContent.endsWith(hexAddress)) continue;
+        element.scrollIntoView();
+        break;
+      }
+    });
   });
   layout.registerComponent('registers', function(container, state) {
     let registersNode = $(
