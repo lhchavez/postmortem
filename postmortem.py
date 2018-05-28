@@ -401,6 +401,12 @@ def main():
     """Main entrypoint."""
     parser = argparse.ArgumentParser()
     parser.add_argument('--verbose', '-v', action='store_true')
+    parser.add_argument('--http-port', default=0, type=int,
+                        help='TCP port for the web server.')
+    parser.add_argument('--ws-port', default=0, type=int,
+                        help='TCP port for the WebSockets.')
+    parser.add_argument('--no-launch', dest='launch', action='store_false',
+                        help='Automatically launch a browser.')
     parser.add_argument('--gdb-path', default='/usr/bin/gdb',
                         help='Path to the gdb binary')
     parser.add_argument('gdb_args', metavar='GDB-ARG', type=str, nargs='+',
@@ -413,7 +419,7 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO)
 
-    gdb_server = SimpleWebSocketServer('localhost', 0,
+    gdb_server = SimpleWebSocketServer('localhost', args.ws_port,
                                        _factory(GdbServer, args.gdb_path,
                                                 args.gdb_args))
     gdb_server_port = gdb_server.serversocket.getsockname()[1]
@@ -423,16 +429,18 @@ def main():
 
     socketserver.TCPServer.allow_reuse_address = True
     http_server = socketserver.TCPServer(
-        ('localhost', 0),
+        ('localhost', args.http_port),
         _factory(HTTPHandler, os.path.dirname(os.path.realpath(__file__))))
     http_port = http_server.socket.getsockname()[1]
     threading.Thread(target=http_server.serve_forever, daemon=True).start()
 
     payload = base64.b64encode(
         json.dumps({'websocketPort': gdb_server_port}).encode('utf-8'))
-    subprocess.check_call([
-        '/usr/bin/xdg-open',
-        'http://localhost:%d#%s' % (http_port, payload.decode('utf-8'))])
+    url = 'http://localhost:%d#%s' % (http_port, payload.decode('utf-8'))
+    if args.launch:
+        subprocess.check_call(['/usr/bin/xdg-open', url])
+    else:
+        print('Ready. Navigate to %s' % url)
 
     websocket_thread.join()
 
