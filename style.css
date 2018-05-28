@@ -7,6 +7,20 @@
 	--font: 9pt "Luculent Regular", monospace;
 }
 
+/* Navbar */
+nav.navbar, nav form.form-inline {
+	font: var(--font);
+}
+nav.navbar .navbar-brand img {
+	filter: invert(100%);
+}
+nav form.form-inline, nav form select[name="frame"] {
+	flex-shrink: 1;
+}
+nav form select[name="frame"] {
+	width: 100% !important;
+}
+
 /* Graph */
 svg {
 	display: none;
@@ -89,9 +103,18 @@ code.language-assembly span.source-address {
 
 .gdb-console-container {
 	flex: 1;
-	background: #373b41;
 	background: #1d1f21;
 	overflow-y: auto;
+}
+.gdb-console-input {
+	background: #373b41;
+	font: var(--font);
+}
+.gdb-console-input input, .gdb-console-input input:focus {
+	flex-grow: 1;
+	background: #1d1f21;
+	color: #ffffff;
+	border-color: #373b41;
 }
 .gdb-console {
 	white-space: pre-wrap;
@@ -116,7 +139,7 @@ code.language-assembly span.source-address {
 	background: #1d1f21;
 	color: #c5c8c6;
 }
-.registers tr:nth-child(odd), .stack tr:nth-child(odd) {
+.registers tbody tr:nth-child(odd), .stack tbody tr:nth-child(odd) {
 	background: #282c30;
 }
 .registers th, .stack th {

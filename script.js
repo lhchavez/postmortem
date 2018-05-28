@@ -1098,9 +1098,9 @@ function main() {
         <div class="gdb-console-container">
           <div class="h-100 w-100 gdb-console"></div>
         </div>
-        <form class="d-flex flex-row">
+        <form class="form-inline flex-row gdb-console-input">
           <label class="p-1">(gdb) </label>
-          <input type="text" name="command" autocomplete="off" class="form-control p-1">
+          <input type="text" name="command" autocomplete="off" class="form-control form-control-sm">
         </form>
       </div>`
     );

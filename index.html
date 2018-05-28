@@ -8,17 +8,29 @@
 
 	<title>postmortem</title>
 
-	<script type="text/javascript" src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
-	<script type="text/javascript" src="https://golden-layout.com/assets/js/goldenlayout.min.js"></script>
-	<script type="text/javascript" src="https://cdn.rawgit.com/dagrejs/dagre/v0.8.2/dist/dagre.min.js"></script>
-	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js" integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q" crossorigin="anonymous"></script>
-	<script type="text/javascript" src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js" integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl" crossorigin="anonymous"></script>
+	<script type="text/javascript"
+          src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+	<script type="text/javascript"
+          src="https://golden-layout.com/assets/js/goldenlayout.min.js"></script>
+	<script type="text/javascript"
+          src="https://cdn.rawgit.com/dagrejs/dagre/v0.8.2/dist/dagre.min.js"></script>
+	<script type="text/javascript"
+          src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"
+          integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q"
+          crossorigin="anonymous"></script>
+	<script type="text/javascript"
+	        src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"
+          integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl"r
+          crossorigin="anonymous"></script>
 
 	<script type="text/javascript" src="prism.js" data-manual></script>
 	<script type="text/javascript" src="graph.js"></script>
 	<script type="text/javascript" src="script.js"></script>
 
-	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css" integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
+	<link rel="stylesheet"
+	      href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css"
+	      integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm"
+	      crossorigin="anonymous">
 	<link rel="stylesheet" href="style.css" />
 	<link rel="stylesheet" href="prism.css" />
 	<link rel="stylesheet" href="https://golden-layout.com/assets/css/goldenlayout-base.css" />
@@ -33,14 +45,23 @@
 </head>
 <body class="d-flex flex-column h-100 bg-dark text-white">
 	<header>
-		<nav class="navbar navbar-dark bg-dark py-0">
-			<span class="navbar-brand">postmortem</span>
-			<form class="form-inline my-2 my-lg-0 d-inline-flex flex-row">
-				<label class="col-sm-2 col-form-label">Thread</label>
-				<select name="thread" class="form-control form-control-sm mr-sm-2">
+		<nav class="navbar navbar-dark bg-dark flex-nowrap">
+			<span class="navbar-brand">
+				<img src="https://image.flaticon.com/icons/svg/25/25646.svg"
+				     width="30" height="30"
+				     class="d-inline-block align-middle" alt="">
+				postmortem
+			</span>
+
+			<form class="form-inline flex-nowrap">
+				<label class="mx-2" for="thread-select">Thread</label>
+				<select id="thread-select" name="thread"
+				        class="form-control form-control-sm">
 				</select>
-				<label class="col-sm-2 col-form-label">Frame</label>
-				<select name="frame" class="form-control row mr-sm-2" style="max-width: 100px">
+
+				<label class="mx-2" for="frame-select">Frame</label>
+				<select id="frame-select" name="frame"
+				        class="form-control form-control-sm">
 				</select>
 			</form>
 		</nav>
