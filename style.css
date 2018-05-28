@@ -1,10 +1,27 @@
 :root {
 	--background-color: #1d1f21;
+	--mid-background-color: #282c30;
+	--light-background-color: #373b41;
 	--foreground-color: #c5c8c6;
 	--border-color: #2d3c46;
 	--selection-color: #de935f;
 
 	--font: 9pt "Luculent Regular", monospace;
+
+	scrollbar-track-color: #000;
+	scrollbar-face-color: var(--background-color);
+}
+::-webkit-scrollbar {
+	background: #000;
+}
+::-webkit-scrollbar-corner {
+	background: var(--light-background-color);
+}
+::-webkit-scrollbar-thumb {
+	background: var(--background-color);
+}
+::-webkit-scrollbar-thumb:hover {
+	background: var(--mid-background-color);
 }
 
 /* Navbar */
@@ -103,18 +120,18 @@ code.language-assembly span.source-address {
 
 .gdb-console-container {
 	flex: 1;
-	background: #1d1f21;
+	background: var(--background-color);
 	overflow-y: auto;
 }
 .gdb-console-input {
-	background: #373b41;
+	background: var(--light-background-color);
 	font: var(--font);
 }
 .gdb-console-input input, .gdb-console-input input:focus {
 	flex-grow: 1;
-	background: #1d1f21;
+	background: var(--background-color);
 	color: #ffffff;
-	border-color: #373b41;
+	border-color: var(--light-background-color);
 }
 .gdb-console {
 	white-space: pre-wrap;
@@ -130,13 +147,13 @@ code.language-assembly span.source-address {
 	color: #cc6666;
 }
 .gdb-console .prompt {
-	color: #373b41;
+	color: var(--light-background-color);
 }
 
 .registers, .stack {
 	font: var(--font);
 	overflow-y: auto;
-	background: #1d1f21;
+	background: var(--background-color);
 	color: #c5c8c6;
 }
 .registers tbody tr:nth-child(odd), .stack tbody tr:nth-child(odd) {
@@ -146,8 +163,8 @@ code.language-assembly span.source-address {
 	padding: 3px;
 }
 .registers td, .stack td {
-	overflow: none;
 	text-overflow: ellipsis;
+	padding: 2px;
 }
 
 .source-editor, .assembly-editor {
