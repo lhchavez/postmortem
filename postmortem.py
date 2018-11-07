@@ -4,7 +4,6 @@
 
 import argparse
 import base64
-import collections
 import http.server
 import json
 import logging
@@ -15,109 +14,13 @@ import subprocess
 import sys
 import threading
 
-import capstone
-
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)),
                              'simple-websocket-server'))
 
 # pylint: disable=import-error,wrong-import-position
 from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
 
-_UNCONDITIONAL_JUMP_MNEMONICS = ['jmp']
-_HALT_MNEMONICS = ['hlt']
-
-
-def _parse_int(s):
-    if s.startswith('0x'):
-        return int(s[2:], 16)
-    return int(s)
-
-
-def _calculate_edges(disassembler, code, address_range):
-    cuts = set([address_range[0]])
-    edges = collections.defaultdict(list)
-    for i in disassembler.disasm(code, address_range[0]):
-        if capstone.CS_GRP_JUMP in i.groups:
-            cuts.add(i.address + i.size)
-            cuts.add(i.operands[0].value.imm)
-            if i.mnemonic in _UNCONDITIONAL_JUMP_MNEMONICS:
-                edges[i.address] = [(i.operands[0].value.imm, 'unconditional')]
-            else:
-                edges[i.address] = [(i.address + i.size, 'fallthrough'),
-                                    (i.operands[0].value.imm, 'jump')]
-        elif capstone.CS_GRP_RET in i.groups or i.mnemonic in _HALT_MNEMONICS:
-            cuts.add(i.address + i.size)
-        else:
-            edges[i.address] = [(i.address + i.size, 'unconditional')]
-        # Some amount of padding was added to the code to ensure that the last
-        # instruction is read fully.
-        if i.address >= address_range[1]:
-            break
-    return cuts, edges
-
-
-def _fill_basic_blocks(disassembler, code, cuts, edges, address_range):
-    blocks = collections.defaultdict(lambda: {'edges': [], 'instructions': []})
-
-    current_block = None
-    for i in disassembler.disasm(code, address_range[0]):
-        if i.address in cuts:
-            current_block = blocks['%x' % i.address]
-        if i.address in edges:
-            for dst, edgetype in edges[i.address]:
-                if dst not in cuts:
-                    continue
-                current_block['edges'].append({'type': edgetype,
-                                               'target': '%x' % dst})
-        current_block['instructions'].append({
-            'address': '%x' % i.address,
-            'bytes': [x for x in i.bytes],
-            'mnemonic': i.mnemonic,
-            'op': i.op_str,
-        })
-        # Some amount of padding was added to the code to ensure that the last
-        # instruction is read fully.
-        if i.address >= address_range[1]:
-            break
-    return blocks
-
-
-def _prune_unreachable(blocks, address_range):
-    reachable = set()
-    queue = ['%x' % address_range[0]]
-    while queue:
-        addr = queue.pop()
-        if addr in reachable:
-            continue
-        reachable.add(addr)
-        for edge in blocks[addr]['edges']:
-            queue.append(edge['target'])
-
-    for unreachable in sorted(set(blocks.keys()) - reachable):
-        del blocks[unreachable]
-
-
-def _disassemble(isa, memory, address_range):
-    if isa == 'x86':
-        disassembler = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
-    elif isa == 'x86_64':
-        disassembler = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
-    elif isa == 'aarch64':
-        disassembler = capstone.Cs(capstone.CS_ARCH_ARM64, capstone.CS_MODE_64)
-    elif isa == 'arm':
-        disassembler = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_32)
-    else:
-        logging.error('Unknown ISA: %s', isa)
-        return {}
-    disassembler.detail = True
-    disassembler.syntax = capstone.CS_OPT_SYNTAX_ATT
-    code = base64.b16decode(memory, casefold=True)
-
-    cuts, edges = _calculate_edges(disassembler, code, address_range)
-    blocks = _fill_basic_blocks(disassembler, code, cuts, edges, address_range)
-    _prune_unreachable(blocks, address_range)
-
-    return blocks
+import cfg
 
 
 class GdbConnection(object):  # pylint: disable=too-few-public-methods
@@ -324,12 +227,15 @@ class GdbServer(WebSocket):
                 b'0x%x' % address_range[0],
                 b'%d' % (address_range[1] - address_range[0] + 32)):
             if message['type'] == 'result':
-                graph = _disassemble(
-                    isa, message['record']['memory'][0]['contents'],
+                graph = cfg.Disassembler(isa).disassemble(
+                    base64.b16decode(message['record']['memory'][0]['contents'],
+                                     casefold=True),
                     address_range)
-                self.sendMessage(json.dumps({'type': 'result',
-                                             'record': graph,
-                                             'token': token}))
+                self.sendMessage(json.dumps({
+                    'type': 'result',
+                    'record': graph,
+                    'token': token,
+                }))
             else:
                 self.sendMessage(json.dumps(message))
 
