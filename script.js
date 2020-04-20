@@ -934,7 +934,7 @@ function main() {
     container.getElement().append(editorNode);
 
     function redraw() {
-      sourceEditorNode.innerText = currentSource;
+      sourceEditorNode.textContent = currentSource;
       if (currentSource) {
         sourcePreNode.setAttribute('data-line', currentFrame.line);
       } else {
@@ -1001,15 +1001,15 @@ function main() {
     let assemblyEditorNode = assemblyNode[0].querySelector('code');
     layout.eventHub.on('assemblyReady', (currentAddress, insns) => {
       container.setTitle(currentFrame.func || 'Disassembly');
-      let contents = '';
+      let contents = [];
       let activeLine = 0;
       for (let i = 0; i < insns.length; i++) {
-        contents += insns[i].address.substring(2) + ' ' + insns[i].inst + '\n';
+        contents.push(`${insns[i].address.substring(2)} ${insns[i].inst}`);
         if (insns[i].address == currentAddress) {
           activeLine = i;
         }
       }
-      assemblyEditorNode.innerText = contents;
+      assemblyEditorNode.textContent = contents.join('\n');
       assemblyPreNode.setAttribute('data-line', activeLine + 1);
       Prism.highlightElement(assemblyEditorNode);
       let highlight = assemblyPreNode.querySelector('.line-highlight');
