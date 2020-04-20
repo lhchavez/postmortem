@@ -670,12 +670,14 @@ function main() {
   let threads = {};
   let currentFrame = {
     fullname: null,
+    func: null,
     line: null,
     address: null,
   };
   let currentThread = null;
+  let functionBounds = null;
 
-  let socket = new WebSocket('ws://localhost:' + payload.websocketPort);
+  let socket = new WebSocket(`ws://localhost:${payload.websocketPort}`);
   let payloadCount = 0;
   let promiseMapping = {};
   function socketSend(payload) {
@@ -706,7 +708,7 @@ function main() {
       promiseMapping[data.token].resolve(data.record);
       delete promiseMapping[data.token];
     } else {
-      console.log(data);
+      console.log(`unknown data type: ${data.type}`, data);
     }
   };
   socket.onerror = function(event) {
@@ -748,6 +750,43 @@ function main() {
         );
       });
   };
+
+  function getFunctionBounds(func) {
+    function _boundsFor(func) {
+      if (!functionBounds.hasOwnProperty(func)) {
+        console.error(`could not find bounds for ${func}. Guesstimating 1024 bytes`);
+        return {
+          start: `"${func}"`,
+          end: `"${func} + 1024"`,
+        };
+      }
+      return functionBounds[func];
+    }
+
+    if (functionBounds !== null) {
+      return Promise.resolve(_boundsFor(func));
+    }
+    return socketSend({
+             method : 'info-functions',
+           })
+        .then(record => {
+          functionBounds = {};
+
+          let lastAddress = BigInt('0xffffffffffffffff');
+          for (const functionRecord of record.reverse()) {
+            let currentAddress = BigInt(functionRecord.address);
+            const length =
+                Math.min(131072, Number(lastAddress - currentAddress));
+            lastAddress = currentAddress;
+            functionBounds[functionRecord.name] = {
+              start : functionRecord.address,
+              end : `0x${(currentAddress + BigInt(length)).toString(16)}`,
+            };
+          }
+
+          return _boundsFor(func);
+        });
+  }
 
   const goldenLayoutSettings = {
     content: [
@@ -944,7 +983,7 @@ function main() {
         sourceEditorNode.className = 'language-c';
       } else {
         console.log(
-          'Unknown language for ' + sourcePath + '. defaulting to C++'
+          `Unknown language for ${sourcePath}. defaulting to C++`
         );
         sourceEditorNode.className = '';
       }
@@ -1159,18 +1198,25 @@ function main() {
     currentThread = selectedThread;
     currentFrame = selectedFrame;
     if (currentFrame.fullname) {
-      let cmd =
-        '-data-disassemble -f ' +
-        currentFrame.fullname +
-        ' -l ' +
-        currentFrame.line +
-        ' -n -1 -- 0';
+      let cmd = `-data-disassemble -f ${currentFrame.fullname}  -l ${
+          currentFrame.line} -n -1 -- 0`;
       socketSend({ method: 'run', command: cmd }).then(record => {
         layout.eventHub.emit(
           'assemblyReady',
           currentFrame.addr,
           record.asm_insns
         );
+      });
+    } else if (currentFrame.func) {
+      getFunctionBounds(currentFrame.func).then(bounds => {
+        let cmd = `-data-disassemble -s ${bounds.start}  -e ${bounds.end} -- 0`;
+        socketSend({ method: 'run', command: cmd }).then(record => {
+          layout.eventHub.emit(
+            'assemblyReady',
+            currentFrame.addr,
+            record.asm_insns
+          );
+        });
       });
     } else {
       layout.eventHub.emit('assemblyReady', currentFrame.addr, []);
@@ -1212,9 +1258,15 @@ function main() {
     for (const frame of frames) {
       let frameElement = document.createElement('option');
       frameElement.value = frame.level;
-      frameElement.appendChild(
-        document.createTextNode(frame.fullname + ':' + frame.line)
-      );
+      if (typeof frame.fullname !== 'undefined' && typeof frame.line !== 'undefined') {
+        frameElement.appendChild(
+          document.createTextNode(`${frame.level}. ${frame.fullname}:${frame.line}`)
+        );
+      } else {
+        frameElement.appendChild(
+          document.createTextNode(`${frame.level}. ${frame.func} (${frame.addr})`)
+        );
+      }
       if (parseInt(frame.level) == currentFrameIndex) {
         frameElement.selected = 'selected';
       }

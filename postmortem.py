@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import pty
+import re
 import socketserver
 import subprocess
 import sys
@@ -239,6 +240,30 @@ class GdbServer(WebSocket):
             else:
                 self.sendMessage(json.dumps(message))
 
+    def _handle_info_functions(self, token=None):
+        symbol_re = re.compile(r'^(0x[0-9a-f]+)\s+([^\n]+)\n$')
+
+        functions = []
+        for message in self._connection.send(
+                b'-interpreter-exec',
+                b'console',
+                b'"info functions"'):
+            if message['type'] != 'console-stream':
+                continue
+            match = symbol_re.match(message['payload'])
+            if not match:
+                continue
+            functions.append({
+                'address': match.group(1),
+                'name': match.group(2),
+            })
+        functions.sort(key=lambda x: x['address'])
+        self.sendMessage(json.dumps({
+            'type': 'result',
+            'record': functions,
+            'token': token,
+        }))
+
     def handleMessage(self):  # pylint: disable=invalid-name
         """Handles one WebSockets message."""
         try:
@@ -262,7 +287,9 @@ class GdbServer(WebSocket):
                     data['isa'], (data['startAddress'], data['endAddress']),
                     token=token)
                 return
-            logging.error('unhandled method %s', data)
+            if data['method'] == 'info-functions':
+                self._handle_info_functions(token=token)
+                return
         except:  # pylint: disable=bare-except
             logging.exception('Error handling request')
 
