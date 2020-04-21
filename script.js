@@ -682,6 +682,7 @@ function main() {
       JSON.parse(window.localStorage.getItem('symbolTable') || '{}');
   let currentThread = null;
   let functionBounds = null;
+  let dirtyThreads = true;
 
   let socket = new WebSocket(`ws://localhost:${payload.websocketPort}`);
   let payloadCount = 0;
@@ -700,11 +701,61 @@ function main() {
       layout.eventHub.emit('consoleAdded', data.payload, 'log');
     } else if (data.type == 'error-stream') {
       layout.eventHub.emit('consoleAdded', data.payload, 'error');
-    } else if (
-      data.type == 'notify-async' &&
-      data['class'] == 'thread-selected'
-    ) {
+    } else if (data.type == 'notify-async' &&
+               data['class'] == 'thread-selected') {
       layout.eventHub.emit('threadSelected', data.output, data.output.frame);
+    } else if (data.type == 'notify-async' &&
+               (data['class'] == 'thread-created' ||
+                data['class'] == 'thread-exited' ||
+                data['class'] == 'thread-group-added' ||
+                data['class'] == 'thread-group-removed' ||
+                data['class'] == 'thread-group-started' ||
+                data['class'] == 'thread-group-exited')) {
+      dirtyThreads = true;
+    } else if (data.type == 'exec-async' && data['class'] == 'running') {
+      const buttonElement = document.querySelector('.gdb-console-input button');
+      buttonElement.textContent = '⏸';
+      buttonElement.dataset.state = 'pause';
+      document.querySelector('.gdb-console-input input').disabled = true;
+    } else if (data.type == 'exec-async' && data['class'] == 'stopped') {
+      const buttonElement = document.querySelector('.gdb-console-input button');
+      buttonElement.textContent = '▶️';
+      buttonElement.dataset.state = 'play';
+      document.querySelector('.gdb-console-input input').disabled = false;
+      if (dirtyThreads) {
+        dirtyThreads = false;
+        socketSend({method : 'run', command : '-thread-info'}).then(record => {
+          let activeThread = null;
+          let threadSelect = document.querySelector('select[name="thread"]');
+          while (threadSelect.firstChild) {
+            threadSelect.removeChild(threadSelect.firstChild);
+          }
+          for (const thread of record.threads) {
+            let threadElement = document.createElement('option');
+            threadElement.value = thread.id;
+            threads[thread.id] = {
+              id : thread.id,
+              name : thread['target-id'],
+              defaultFrame : thread.frame,
+              stack : null,
+            };
+            let threadName = thread['target-id'];
+            if (thread.id == record['current-thread-id']) {
+              activeThread = thread;
+              threadElement.selected = 'selected';
+              threadName = `* ${threadName}`;
+            } else {
+              threadName = `\u00A0 ${threadName}`;
+            }
+            threadElement.appendChild(document.createTextNode(threadName));
+            threadSelect.appendChild(threadElement);
+          }
+          if (activeThread) {
+            layout.eventHub.emit('threadSelected', activeThread,
+                                 activeThread.frame);
+          }
+        });
+      }
     } else if (data.type == 'result') {
       if (
         typeof data.token === 'undefined' ||
@@ -724,36 +775,6 @@ function main() {
     socketSend({ method: 'run', command: '-data-list-register-names' })
       .then(record => {
         machine.registerNames = record['register-names'];
-        return socketSend({ method: 'run', command: '-thread-info' });
-      })
-      .then(record => {
-        let activeThread = null;
-        let threadSelect = document.querySelector('select[name="thread"]');
-        for (const thread of record.threads) {
-          let threadElement = document.createElement('option');
-          threadElement.value = thread.id;
-          threads[thread.id] = {
-            id: thread.id,
-            name: thread['target-id'],
-            defaultFrame: thread.frame,
-            stack: null,
-          };
-          let threadName = thread['target-id'];
-          if (thread.id == record['current-thread-id']) {
-            activeThread = thread;
-            threadElement.selected = 'selected';
-            threadName = '* ' + threadName;
-          } else {
-            threadName = '\u00A0 ' + threadName;
-          }
-          threadElement.appendChild(document.createTextNode(threadName));
-          threadSelect.appendChild(threadElement);
-        }
-        layout.eventHub.emit(
-          'threadSelected',
-          activeThread,
-          activeThread.frame
-        );
       });
   };
 
@@ -1151,12 +1172,14 @@ function main() {
         <form class="form-inline flex-row gdb-console-input">
           <label class="p-1">(gdb) </label>
           <input type="text" name="command" autocomplete="off" class="form-control form-control-sm">
+          <button data-state="pause">⏸</button>
         </form>
       </div>`
     );
     const consoleElement = consoleNode[0].querySelector('.gdb-console');
     const inputElement = consoleNode[0].querySelector('input');
     const commandElement = consoleNode[0].querySelector('form');
+    const buttonElement = consoleNode[0].querySelector('button');
     container.getElement().append(consoleNode);
 
     function appendConsoleNode(contents, className) {
@@ -1197,6 +1220,16 @@ function main() {
         } else {
           inputElement.value = '';
         }
+      }
+    });
+
+    buttonElement.addEventListener('click', ev => {
+      if (ev.target.dataset.state == 'play') {
+        socketSend({method : 'run', command : '-exec-continue'})
+            .then(record => {});
+      } else {
+        socketSend({method : 'run', command : '-exec-interrupt --all'})
+            .then(record => {});
       }
     });
     layout.eventHub.on('consoleAdded', appendConsoleNode);
