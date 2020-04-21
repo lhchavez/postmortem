@@ -27,6 +27,10 @@ function createSVGNode(type, attributes) {
 
 Prism.languages.assembly = {
   comment: /#.*/,
+  identifier: {
+    pattern: /\{[a-z_][a-z0-9_]*\}/,
+    alias: 'tag',
+  },
   immediate: {
     pattern: /\$0x[0-9a-fA-F]+/,
     alias: 'number',
@@ -674,6 +678,8 @@ function main() {
     line: null,
     address: null,
   };
+  let symbolTable =
+      JSON.parse(window.localStorage.getItem('symbolTable') || '{}');
   let currentThread = null;
   let functionBounds = null;
 
@@ -1001,10 +1007,15 @@ function main() {
     let assemblyEditorNode = assemblyNode[0].querySelector('code');
     layout.eventHub.on('assemblyReady', (currentAddress, insns) => {
       container.setTitle(currentFrame.func || 'Disassembly');
+      let replacements = symbolTable[currentFrame.func] || {};
       let contents = [];
       let activeLine = 0;
       for (let i = 0; i < insns.length; i++) {
-        contents.push(`${insns[i].address.substring(2)} ${insns[i].inst}`);
+        let instruction = insns[i].inst;
+        for (const [search, replace] of Object.entries(replacements)) {
+          instruction = instruction.replace(search, `${search} {${replace}}`);
+        }
+        contents.push(`${insns[i].address.substring(2)} ${instruction}`);
         if (insns[i].address == currentAddress) {
           activeLine = i;
         }
