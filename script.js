@@ -3,12 +3,10 @@
 function Deferred() {
   this.resolve = null;
   this.reject = null;
-  this.promise = new Promise(
-    function(resolve, reject) {
-      this.resolve = resolve;
-      this.reject = reject;
-    }.bind(this)
-  );
+  this.promise = new Promise((resolve, reject) => {
+    this.resolve = resolve;
+    this.reject = reject;
+  });
   Object.freeze(this);
 }
 
@@ -206,7 +204,7 @@ class GraphView {
 
         let blockTextElm = createSVGNode('text', {
           x: 0,
-          y: i + 'em',
+          y: `${i}em`,
         });
         let address = parseInt(ins.address, 16);
         this.instructionSpans[address] = blockTextElm;
@@ -218,14 +216,14 @@ class GraphView {
         blockTextElm.appendChild(addressSpan);
 
         let mnemonicSpan = createSVGNode('tspan', {
-          x: addressWidth + 2 + 'ex',
+          x: `${addressWidth + 2}ex`,
         });
         mnemonicSpan.setAttribute('class', 'mnemonic');
         mnemonicSpan.appendChild(document.createTextNode(ins.mnemonic));
         blockTextElm.appendChild(mnemonicSpan);
 
         let registerSpan = createSVGNode('tspan', {
-          x: addressWidth + mnemonicWidth + 5 + 'ex',
+          x: `${addressWidth + mnemonicWidth + 5}ex`,
         });
         registerSpan.setAttribute('class', 'register');
         registerSpan.appendChild(document.createTextNode(ins.op));
@@ -281,7 +279,7 @@ class GraphView {
       block.element.setAttributeNS(
         null,
         'transform',
-        'translate(' + (5 + block.x - minX) + ', ' + (18 + block.y) + ')'
+        `translate(${5 + block.x - minX}, ${18 + block.y})`
       );
       if (this.debug) {
         let rectElm = createSVGNode('rect', {
@@ -302,15 +300,14 @@ class GraphView {
         } else {
           points += 'L';
         }
-        points += edge.points[i].x - minX;
-        points += ',' + edge.points[i].y;
+        points += `${edge.points[i].x - minX},${edge.points[i].y}`;
       }
       let lineElm = createSVGNode('path', {
         d: points,
       });
       lineElm.setAttribute(
         'class',
-        'edge ' + edge.type + (edge.back ? ' back-edge' : '')
+        `edge ${edge.type}${edge.back ? ' back-edge' : ''}`
       );
       nodes.push(lineElm);
       edge.element = lineElm;
@@ -336,20 +333,12 @@ class GraphView {
     miniViewRect.setAttribute('y', this.svg.clientHeight - miniViewHeight - 22);
     miniViewRect.setAttribute('width', miniViewWidth + 22);
     miniViewRect.setAttribute('height', miniViewHeight + 22);
-    this.svg
-      .querySelector('#MiniView use')
-      .setAttribute(
-        'transform',
-        'translate(' +
-          (this.svg.clientWidth - miniViewWidth - 12) +
-          ' ' +
-          (this.svg.clientHeight - miniViewHeight - 12) +
-          '),scale(' +
-          this.miniViewScale +
-          ' ' +
-          this.miniViewScale +
-          ')'
-      );
+    this.svg.querySelector('#MiniView use')
+        .setAttribute(
+            'transform',
+            `translate(${this.svg.clientWidth - miniViewWidth - 12} ${
+                this.svg.clientHeight - miniViewHeight -
+                12}),scale(${this.miniViewScale} ${this.miniViewScale})`);
     this.viewport.x = 0;
     this.viewport.y = 0;
     this.viewport.scale = Math.max(
@@ -410,14 +399,10 @@ class GraphView {
       );
       let highlightArrowBBox = highlightArrow.getBBox();
       highlightArrow.setAttribute(
-        'transform',
-        'translate(' +
-          (elementBBox.x - highlightArrowBBox.width - 8) +
-          ', ' +
-          (elementBBox.y +
-            (elementBBox.height - highlightArrowBBox.height) / 2.0) +
-          ')'
-      );
+          'transform',
+          `translate(${elementBBox.x - highlightArrowBBox.width - 8}, ${
+              elementBBox.y +
+              (elementBBox.height - highlightArrowBBox.height) / 2.0})`);
     }
   }
 
@@ -550,15 +535,9 @@ class GraphView {
 
   __updateViewBox() {
     let mainTransform =
-      'translate(' +
-      -this.viewport.x * this.viewport.scale +
-      ', ' +
-      -this.viewport.y * this.viewport.scale +
-      '),scale(' +
-      this.viewport.scale +
-      ' ' +
-      this.viewport.scale +
-      ')';
+        `translate(${- this.viewport.x * this.viewport.scale}, ${
+            - this.viewport.y * this.viewport.scale}),scale(${
+            this.viewport.scale} ${this.viewport.scale})`;
     this.svg
       .querySelector('#MainView')
       .setAttribute('transform', mainTransform);
@@ -656,15 +635,8 @@ class Machine {
   }
 
   get gdbStackCommand() {
-    return (
-      '-data-read-memory $' +
-      this.stackRegister +
-      '-' +
-      this.stackRedZone +
-      ' x ' +
-      this.registerWidth +
-      ' 100 1'
-    );
+    return `-data-read-memory $${this.stackRegister}-${this.stackRedZone} x ${
+        this.registerWidth} 100 1`;
   }
 }
 
@@ -1148,7 +1120,7 @@ function main() {
         cellElement.className = 'right';
         cellElement.appendChild(
           document.createTextNode(
-            (offset >= 0 ? '0x' : '-0x') + Math.abs(offset).toString(16)
+            `${offset >= 0 ? '0x' : '-0x'}${Math.abs(offset).toString(16)}`
           )
         );
         offset += machine.registerWidth;
@@ -1202,7 +1174,7 @@ function main() {
       } else {
         return;
       }
-      layout.eventHub.emit('consoleAdded', '(gdb) ' + cmd + '\n', 'prompt');
+      layout.eventHub.emit('consoleAdded', `(gdb) ${cmd}\n`, 'prompt');
       inputElement.value = '';
       socketSend({ method: 'run', command: cmd });
     });
@@ -1324,7 +1296,7 @@ function main() {
       let threadIndex = parseInt(ev.target.value);
       socketSend({
         method: 'run',
-        command: '-thread-select ' + threadIndex,
+        command: `-thread-select ${threadIndex}`,
       }).then(record => {
         layout.eventHub.emit(
           'threadSelected',
@@ -1339,7 +1311,7 @@ function main() {
       let frameIndex = parseInt(ev.target.value);
       socketSend({
         method: 'run',
-        command: '-stack-select-frame ' + frameIndex,
+        command: `-stack-select-frame ${frameIndex}`,
       }).then(record => {
         layout.eventHub.emit(
           'threadSelected',
