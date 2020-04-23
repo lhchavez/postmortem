@@ -173,7 +173,20 @@ code.language-assembly span.source-address {
 .source-editor>pre,
 .source-editor>pre>code,
 .assembly-editor>pre,
-.assembly-editor>pre>code {
+.assembly-editor>pre>code,
+.assembly-editor>textarea {
 	height: 100%;
 	margin: 0;
+}
+.CodeMirror {
+	height: 100% !important;
+}
+span.cm-link {
+	cursor: pointer;
+}
+.CodeMirror-line.current-instruction {
+	font-weight: bold;
+}
+.CodeMirror-linebackground.current-line {
+	background: var(--light-background-color);
 }

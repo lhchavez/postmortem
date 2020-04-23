@@ -23,55 +23,31 @@ function createSVGNode(type, attributes) {
   return node;
 }
 
-Prism.languages.assembly = {
-  comment: /#.*/,
-  identifier: {
-    pattern: /\{[a-z_][a-z0-9_]*\}/,
-    alias: 'tag',
-  },
-  immediate: {
-    pattern: /\$0x[0-9a-fA-F]+/,
-    alias: 'number',
-  },
-  register: {
-    pattern: /%[a-z0-9]+/,
-    alias: 'function',
-  },
-  'source-address': {
-    pattern: /^[0-9a-fA-F]+/m,
-    alias: 'string',
-  },
-  address: {
-    pattern: /-?0x[0-9a-fA-F]+/,
-    alias: 'string',
-  },
-  symbol: /<.*>/,
-  opcode: {
-    pattern: /[a-z][a-z0-9.]+/,
-    alias: 'keyword',
-  },
-  number: /[0-9]+/,
-  operator: /[(),]/,
-};
-
-Prism.hooks.add('after-highlight', function(env) {
-  if (env.language != 'assembly') {
-    return;
+CodeMirror.defineSimpleMode('assembly', {
+  start: [
+    { regex: /#.*/, token: 'comment' },
+    // identifier
+    { regex: /\{[a-z_][a-z0-9_]*\}/, token: 'tag' },
+    // address
+    { regex: /\$0x[0-9a-fA-F]+\b/, token: 'number' },
+    // address
+    { regex: /[+-]?0x[0-9a-fA-F]+\b/, token: 'string' },
+    // register
+    { regex: /(\b|%)[a-z][a-z0-9]+\b/, token: 'attribute' },
+    // source-address
+    { regex: /[0-9a-fA-F]+\b/, sol: true, token: 'type.link', next: 'opcode' },
+    { regex: /<.*>/, token: 'atom' },
+    { regex: /\b[0-9]+\b/, token: 'number' },
+    { regex: /BYTE|WORD|DWORD|QWORD|PTR/, token: 'def' },
+    { regex: /[\[\]():,]/, token: 'def' },
+  ],
+  opcode: [
+    { regex: /\b[a-z][a-z0-9.]+\b/, token: 'keyword', next: 'start' },
+  ],
+  meta: {
+    dontIndentStates: ['comment'],
+    lineComment: '#',
   }
-  let sourceAddressRegexp = /\bsource-address\b/;
-  env.element.addEventListener('click', function(ev) {
-    if (!sourceAddressRegexp.test(ev.target.className)) {
-      return;
-    }
-    ev.target.dispatchEvent(
-      new CustomEvent('source-address', {
-        bubbles: true,
-        detail: {
-          address: parseInt(ev.target.innerText.trim(), 16),
-        },
-      })
-    );
-  });
 });
 
 class GraphView {
@@ -924,26 +900,34 @@ function main() {
   layout.registerComponent('source-editor', function(container, state) {
     let editorNode = $(
       `<div class="source-editor h-100 w-100">
-        <pre class="line-numbers"><code class="language-cpp"></code></pre>
+        <textarea></textarea>
       </div>`
     );
-    let sourcePreNode = editorNode[0].querySelector('pre');
-    let sourceEditorNode = editorNode[0].querySelector('code');
+    const sourceCodeMirror =
+        CodeMirror.fromTextArea(editorNode[0].querySelector('textarea'), {
+          theme : 'monokai',
+          mode : 'clike',
+          readOnly : true,
+          lineNumbers : true,
+        });
+    let sourceCurrentLineHandle = null;
     let currentSource = '';
     container.getElement().append(editorNode);
 
     function redraw() {
-      sourceEditorNode.textContent = currentSource;
-      if (currentSource) {
-        sourcePreNode.setAttribute('data-line', currentFrame.line);
-      } else {
-        sourcePreNode.setAttribute('data-line', '');
+      sourceCodeMirror.getDoc().setValue(currentSource);
+      if (sourceCurrentLineHandle) {
+        sourceCodeMirror.removeLineClass(sourceCurrentLineHandle, 'background');
       }
-      Prism.highlightElement(sourceEditorNode);
-      let highlight = sourcePreNode.querySelector('.line-highlight');
-      if (highlight) highlight.scrollIntoView();
+      if (currentFrame && currentFrame.line) {
+        const currentLine = parseInt(currentFrame.line, 10) - 1;
+        sourceCodeMirror.scrollIntoView({line : currentLine, ch : 0}, 100);
+        sourceCurrentLineHandle = sourceCodeMirror.addLineClass(
+            currentLine, 'background', 'current-line');
+      }
     }
     container.on('show', () => window.requestAnimationFrame(() => redraw()));
+    container.on('resize', () => sourceCodeMirror.refresh());
 
     let sourceCache = {};
     layout.eventHub.on('fileChanged', sourcePath => {
@@ -975,16 +959,18 @@ function main() {
     layout.eventHub.on('sourceReady', (sourcePath, contents) => {
       currentSource = contents;
       if (sourcePath.endsWith('java')) {
-        sourceEditorNode.className = 'language-java';
+        sourceCodeMirror.setOption('mode', 'text/x-java');
       } else if (sourcePath.endsWith('cpp') || sourcePath.endsWith('cc')) {
-        sourceEditorNode.className = 'language-cpp';
+        sourceCodeMirror.setOption('mode', 'text/x-c++src');
+      } else if (sourcePath.endsWith('h')) {
+        sourceCodeMirror.setOption('mode', 'text/x-c++hdr');
       } else if (sourcePath.endsWith('c')) {
-        sourceEditorNode.className = 'language-c';
+        sourceCodeMirror.setOption('mode', 'text/x-c');
       } else {
         console.log(
           `Unknown language for ${sourcePath}. defaulting to C++`
         );
-        sourceEditorNode.className = '';
+        sourceCodeMirror.setOption('mode', 'text/x-c++src');
       }
       redraw();
     });
@@ -992,12 +978,24 @@ function main() {
   layout.registerComponent('disassembly', function(container, state) {
     let assemblyNode = $(
       `<div class="assembly-editor w-100 h-100">
-        <pre><code class="language-assembly"></code></pre>
+        <textarea></textarea>
       </div>`
     );
-    let assemblyPreNode = assemblyNode[0].querySelector('pre');
     container.getElement().append(assemblyNode);
-    let assemblyEditorNode = assemblyNode[0].querySelector('code');
+    const assemblyCodeMirror =
+        CodeMirror.fromTextArea(assemblyNode[0].querySelector('textarea'), {
+          theme : 'monokai',
+          mode : 'assembly',
+          styleActiveLine : true,
+        });
+    let assemblyCurrentLineHandle = null;
+    assemblyCodeMirror.on('mousedown', (cm, e) => {
+      if (e.target.className.indexOf('cm-link') === -1) {
+        return;
+      }
+      layout.eventHub.emit('addressSelected', parseInt(e.target.textContent, 16));
+    });
+    container.on('resize', () => assemblyCodeMirror.refresh());
     layout.eventHub.on('assemblyReady', (currentAddress, insns) => {
       container.setTitle(currentFrame.func || 'Disassembly');
       let replacements = symbolTable[currentFrame.func] || {};
@@ -1013,11 +1011,15 @@ function main() {
           activeLine = i;
         }
       }
-      assemblyEditorNode.textContent = contents.join('\n');
-      assemblyPreNode.setAttribute('data-line', activeLine + 1);
-      Prism.highlightElement(assemblyEditorNode);
-      let highlight = assemblyPreNode.querySelector('.line-highlight');
-      if (highlight) highlight.scrollIntoView();
+      assemblyCodeMirror.getDoc().setValue(contents.join('\n'));
+      assemblyCodeMirror.scrollIntoView({line : activeLine, ch : 0}, 100);
+      if (assemblyCurrentLineHandle) {
+        assemblyCodeMirror.removeLineClass(assemblyCurrentLineHandle,
+                                           'text');
+      }
+      assemblyCurrentLineHandle = assemblyCodeMirror.addLineClass(
+          activeLine, 'text', 'current-instruction');
+      assemblyCodeMirror.setCursor(activeLine);
       if (insns.length == 0) {
         layout.eventHub.emit('graphReady', {}, 0);
         return;
@@ -1035,19 +1037,22 @@ function main() {
         layout.eventHub.emit('graphReady', record, address);
       });
     });
-    assemblyEditorNode.addEventListener('source-address', ev =>
-      layout.eventHub.emit('addressSelected', ev.detail.address)
-    );
     layout.eventHub.on('addressSelected', address => {
       if (address == null) return;
       const hexAddress = Number(address).toString(16);
-      const addressElements = assemblyEditorNode.querySelectorAll(
-        '.source-address'
-      );
-      for (let element of addressElements) {
-        if (!element.textContent.endsWith(hexAddress)) continue;
-        element.scrollIntoView();
-        break;
+      for (let i = 0; i < assemblyCodeMirror.lineCount(); ++i) {
+        for (const token of assemblyCodeMirror.getLineTokens(i)) {
+          if (
+            !token.type ||
+            token.type.indexOf('link') === -1 ||
+            !token.string.endsWith(hexAddress)
+          ) {
+            continue;
+          }
+          assemblyCodeMirror.scrollIntoView({line : i, ch : 0}, 100);
+          assemblyCodeMirror.setCursor(i);
+          return;
+        }
       }
     });
   });
