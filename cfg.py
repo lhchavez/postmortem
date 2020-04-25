@@ -4,8 +4,9 @@ from __future__ import print_function
 
 import collections
 import logging
+from typing import Any, DefaultDict, Dict, Iterable, List, Optional, Set, Tuple
 
-import capstone
+import capstone  # type: ignore
 
 _UNCONDITIONAL_JUMP_MNEMONICS = ['jmp', 'jmpq']
 _HALT_MNEMONICS = ['hlt']
@@ -120,8 +121,9 @@ _REGISTER_EQUIVALENCES = {
 }
 
 
-def _prune_unreachable(blocks, address_range):
-    reachable = set()
+def _prune_unreachable(blocks: Dict[str, Dict[str, List[Any]]],
+                       address_range: Tuple[int, int]) -> None:
+    reachable: Set[str] = set()
     queue = ['%x' % address_range[0]]
     while queue:
         addr = queue.pop()
@@ -135,17 +137,19 @@ def _prune_unreachable(blocks, address_range):
         del blocks[unreachable]
 
 
-def reverse_postorder(blocks):
+def reverse_postorder(
+    blocks: Dict[str, Dict[str, List[Any]]]
+) -> Iterable[Tuple[str, Dict[str, List[Any]], Set[str]]]:
     """Visit the block graph in reverse postorder.
 
     This is useful to perform data-flow analysis on the block graph.
     """
 
-    reverse_edges = collections.defaultdict(set)
-    order = []
-    seen = set()
+    reverse_edges: DefaultDict[str, Set[str]] = collections.defaultdict(set)
+    order: List[str] = []
+    seen: Set[str] = set()
 
-    def _visit(address):
+    def _visit(address: str) -> None:
         if address in seen:
             return
         seen.add(address)
@@ -166,10 +170,10 @@ class Disassembler:
     """A control flow graph from a disassembled code."""
 
     def __init__(self,
-                 isa,
+                 isa: str,
                  *,
-                 syntax=capstone.CS_OPT_SYNTAX_ATT,
-                 raw_instructions=False):
+                 syntax: int = capstone.CS_OPT_SYNTAX_ATT,
+                 raw_instructions: bool = False):
         if isa == 'x86':
             self._arch = capstone.CS_ARCH_X86
             self._mode = capstone.CS_MODE_32
@@ -191,33 +195,35 @@ class Disassembler:
 
         self._raw_instructions = raw_instructions
 
-    def disassemble(self, code, address_range):
+    def disassemble(self, code: bytes, address_range: Tuple[int, int]) -> Dict[str, Dict[str, List[str]]]:
         """A JSON-friendly representation of this graph."""
         cuts, edges = self._calculate_edges(code, address_range)
         blocks = self._fill_basic_blocks(code, address_range, cuts, edges)
         _prune_unreachable(blocks, address_range)
         return blocks
 
-    def normalize_register(self, register):
+    def normalize_register(self, register: int) -> Optional[int]:
         """Return the widest register for this register, if known."""
-        return _REGISTER_EQUIVALENCES[self._arch].get(register, None)
+        return _REGISTER_EQUIVALENCES[self._arch].get(register)
 
-    def _get_jump_target(self, instruction):
+    def _get_jump_target(self, instruction: capstone.CsInsn) -> int:
         op = instruction.operands[0]
         if self._arch == capstone.CS_ARCH_X86:
             if op.type == capstone.x86.X86_OP_IMM:
-                return op.imm
+                return int(op.imm)
             if op.type == capstone.x86.X86_OP_MEM:
                 if op.mem.base in (capstone.x86.X86_REG_RIP,
                                    capstone.x86.X86_REG_IP):
-                    return instruction.address + op.mem.disp
+                    return int(instruction.address + op.mem.disp)
         logging.debug('Unsupported jump addressing mode: %s %s',
                       instruction.mnemonic, instruction.op_str)
         return -1
 
-    def _calculate_edges(self, code, address_range):
+    def _calculate_edges(
+        self, code: bytes, address_range: Tuple[int, int]
+    ) -> Tuple[Set[int], Dict[int, List[Tuple[int, str]]]]:
         cuts = set([address_range[0]])
-        edges = collections.defaultdict(list)
+        edges: DefaultDict[int, List[Tuple[int, str]]] = collections.defaultdict(list)
         for i in self._disassembler.disasm(code, address_range[0]):
             if capstone.CS_GRP_JUMP in i.groups:
                 cuts.add(i.address + i.size)
@@ -238,10 +244,21 @@ class Disassembler:
                 break
         return cuts, edges
 
-    def _fill_basic_blocks(self, code, address_range, cuts, edges):
-        blocks = collections.defaultdict(lambda: {'edges': [], 'external_edges': [], 'instructions': []})
+    def _fill_basic_blocks(
+        self, code: bytes, address_range: Tuple[int, int], cuts: Set[int],
+        edges: Dict[int, List[Tuple[int, str]]]
+    ) -> Dict[str, Dict[str, List[Any]]]:
+        blocks: DefaultDict[str, Dict[str, List[Any]]] = collections.defaultdict(lambda: {
+            'edges': [],
+            'external_edges': [],
+            'instructions': [],
+        })
 
-        current_block = None
+        current_block: Dict[str, List[Any]] = {
+            'edges': [],
+            'external_edges': [],
+            'instructions': [],
+        }
         for i in self._disassembler.disasm(code, address_range[0]):
             if i.address in cuts:
                 current_block = blocks['%x' % i.address]

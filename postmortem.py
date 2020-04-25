@@ -4,6 +4,7 @@
 
 import argparse
 import base64
+import functools
 import http.server
 import json
 import logging
@@ -14,31 +15,36 @@ import socketserver
 import subprocess
 import sys
 import threading
+from typing import (Any, Callable, Dict, Iterable, List, Optional, Sequence,
+                    Tuple, TypeVar, Type, Union)
 
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)),
                              'simple-websocket-server'))
 
 # pylint: disable=import-error,wrong-import-position
-from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
+from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket  # type: ignore
 
 import cfg
 
 
-class GdbConnection(object):  # pylint: disable=too-few-public-methods
+class GdbConnection:  # pylint: disable=too-few-public-methods
     """Represents a gdb connection with the gdb/mi protocol."""
 
-    def __init__(self, gdb_path, gdb_args, ws):
+    def __init__(self, gdb_path: str, gdb_args: Sequence[str], ws: WebSocket):
         self._ws = ws
         self._ptm, self._pts = pty.openpty()
         self._p = subprocess.Popen(
-            [gdb_path, '--nx', '--quiet', '--interpreter=mi',
-             '--tty=%s' % os.ttyname(self._pts)] + gdb_args,
-            stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+            (gdb_path, '--nx', '--quiet', '--interpreter=mi',
+             '--tty=%s' % os.ttyname(self._pts)) + tuple(gdb_args),
+            stdout=subprocess.PIPE,
+            stdin=subprocess.PIPE)
         for message in self._read_response():
             self._ws.sendMessage(json.dumps(message))
         self.send(b'-enable-frame-filters')
 
-    def send(self, *args, token=None):
+    def send(self,
+            *args: bytes,
+             token: Optional[int] = None) -> Iterable[Dict[str, Any]]:
         """Sends a command to gdb."""
         payload = b''
         if token is not None:
@@ -50,7 +56,7 @@ class GdbConnection(object):  # pylint: disable=too-few-public-methods
         yield from self._read_response()
 
     @staticmethod
-    def _parse_const(line, value_idx):
+    def _parse_const(line: bytes, value_idx: int) -> Tuple[str, int]:
         assert line[value_idx] == ord('"')
         value_idx += 1
         value = ''
@@ -80,8 +86,8 @@ class GdbConnection(object):  # pylint: disable=too-few-public-methods
         return value, value_idx + 1
 
     @staticmethod
-    def _parse_list(line, value_idx):
-        result = []
+    def _parse_list(line: bytes, value_idx: int) -> Tuple[List[Any], int]:
+        result: List[Any] = []
         assert line[value_idx] == ord('[')
         if line[value_idx+1] == ord(']'):
             return result, value_idx + 2
@@ -91,8 +97,13 @@ class GdbConnection(object):  # pylint: disable=too-few-public-methods
         return result, value_idx + 1
 
     @staticmethod
-    def _parse_tuple(line, value_idx, opening=ord('{'), closing=ord('}')):
-        result = {}
+    def _parse_tuple(
+        line: bytes,
+        value_idx: int,
+        opening: int = ord('{'),
+        closing: int = ord('}')
+    ) -> Tuple[Dict[str, Any], int]:
+        result: Dict[str, Any] = {}
         assert line[value_idx] == opening
         if line[value_idx+1] == closing:
             return result, value_idx + 2
@@ -105,7 +116,7 @@ class GdbConnection(object):  # pylint: disable=too-few-public-methods
         return result, value_idx + 1
 
     @staticmethod
-    def _parse_value(line, value_idx):
+    def _parse_value(line: bytes, value_idx: int) -> Tuple[Any, int]:
         if line[value_idx] == ord('['):
             return GdbConnection._parse_list(line, value_idx)
         if line[value_idx] == ord('{'):
@@ -116,15 +127,15 @@ class GdbConnection(object):  # pylint: disable=too-few-public-methods
         return GdbConnection._parse_value(line, line.find(b'=', value_idx) + 1)
 
     @staticmethod
-    def _parse_class(line, value_idx):
+    def _parse_class(line: bytes, value_idx: int) -> Tuple[str, int]:
         result_idx = line.find(b',', value_idx)
         if result_idx == -1:
             return line[value_idx:].decode('utf-8'), len(line)
         return line[value_idx:result_idx].decode('utf-8'), result_idx
 
     @staticmethod
-    def _parse_record(line, result_idx):
-        result = {}
+    def _parse_record(line: bytes, result_idx: int) -> Tuple[str, Dict[str, str]]:
+        result: Dict[str, str] = {}
         class_name, result_idx = GdbConnection._parse_class(line, result_idx)
         while result_idx < len(line):
             variable_idx = result_idx + 1
@@ -135,7 +146,7 @@ class GdbConnection(object):  # pylint: disable=too-few-public-methods
         return class_name, result
 
     @staticmethod
-    def _parse_token(line):
+    def _parse_token(line: bytes) -> Tuple[Optional[int], int]:
         result_idx = 0
         token = 0
         while ord('0') <= line[result_idx] <= ord('9'):
@@ -146,8 +157,8 @@ class GdbConnection(object):  # pylint: disable=too-few-public-methods
         return token, result_idx
 
     @staticmethod
-    def _parse_line(line):
-        result = {}
+    def _parse_line(line: bytes) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
 
         token, result_idx = GdbConnection._parse_token(line)
         if token is not None:
@@ -182,7 +193,7 @@ class GdbConnection(object):  # pylint: disable=too-few-public-methods
 
         return result
 
-    def _read_response(self):
+    def _read_response(self) -> Iterable[Dict[str, Any]]:
         """Reads a response from gdb."""
         while True:
             line = self._p.stdout.readline()
@@ -196,36 +207,48 @@ class GdbServer(WebSocket):
     """A WebSocket connection to the browser."""
 
     # pylint: disable=too-many-arguments
-    def __init__(self, gdb_path, gdb_args, server, sock, address):
-        super().__init__(server, sock, address)
+    def __init__(self, gdb_path: str, gdb_args: Sequence[str], *args: Any):
+        super().__init__(*args)
         self._gdb_path = gdb_path
         self._gdb_args = gdb_args
-        self._connection = None
+        self._connection: Optional[GdbConnection] = None
 
-    def _handle_run_message(self, command, token=None):
+    def _handle_run_message(self,
+                            command: bytes,
+                            token: Optional[int] = None) -> None:
+        assert self._connection is not None
         for message in self._connection.send(command, token=token):
             self.sendMessage(json.dumps(message))
 
-    def _handle_interpreter_exec(self, command):
+    def _handle_interpreter_exec(self, command: bytes) -> None:
+        assert self._connection is not None
         for message in self._connection.send(b'-interpreter-exec', b'console',
                                              command):
             self.sendMessage(json.dumps(message))
 
-    def _handle_get_source(self, filename, token=None):
+    def _handle_get_source(self,
+                           filename: str,
+                           token: Optional[int] = None) -> None:
         record = None
         try:
             with open(filename, 'r') as f:
                 record = f.read()
         except:  # pylint: disable=bare-except
             logging.exception('Failed to read %s', filename)
-        self.sendMessage(json.dumps({'type': 'result',
-                                     'record': record,
-                                     'token': token}))
+        self.sendMessage(
+            json.dumps({
+                'type': 'result',
+                'record': record,
+                'token': token
+            }))
 
-    def _handle_disassemble_graph(self, isa, address_range, token=None):
+    def _handle_disassemble_graph(self,
+                                  isa: str,
+                                  address_range: Tuple[int, int],
+                                  token: Optional[int] = None) -> None:
+        assert self._connection is not None
         for message in self._connection.send(
-                b'-data-read-memory-bytes',
-                b'0x%x' % address_range[0],
+                b'-data-read-memory-bytes', b'0x%x' % address_range[0],
                 b'%d' % (address_range[1] - address_range[0] + 32)):
             if message['type'] == 'result':
                 graph = cfg.Disassembler(isa).disassemble(
@@ -240,7 +263,8 @@ class GdbServer(WebSocket):
             else:
                 self.sendMessage(json.dumps(message))
 
-    def _handle_info_functions(self, token=None):
+    def _handle_info_functions(self, token: Optional[int] = None) -> None:
+        assert self._connection is not None
         symbol_re = re.compile(r'^(0x[0-9a-f]+)\s+([^\n]+)\n$')
 
         functions = []
@@ -264,7 +288,7 @@ class GdbServer(WebSocket):
             'token': token,
         }))
 
-    def handleMessage(self):  # pylint: disable=invalid-name
+    def handleMessage(self) -> None:  # pylint: disable=invalid-name
         """Handles one WebSockets message."""
         try:
             data = json.loads(self.data)
@@ -293,34 +317,42 @@ class GdbServer(WebSocket):
         except:  # pylint: disable=bare-except
             logging.exception('Error handling request')
 
-    def handleConnected(self):  # pylint: disable=invalid-name
+    def handleConnected(self) -> None:  # pylint: disable=invalid-name
         """Handles the WebSocket connected event."""
         logging.info('%s connected', self.address)
         self._connection = GdbConnection(self._gdb_path, self._gdb_args, self)
 
-    def handleClose(self):  # pylint: disable=invalid-name
+    def handleClose(self) -> None:  # pylint: disable=invalid-name
         """Handles the WebSocket close event."""
         logging.info('%s closed', self.address)
+        if self._connection is None:
+            return
         self._connection.send(b'-gdb-exit')
+        self._connection = None
 
 
 class HTTPHandler(http.server.SimpleHTTPRequestHandler):
     """A SimpleHTTPRequestHandler that serves from root instead of CWD."""
 
-    def __init__(self, root, server, sock, address):
+    def __init__(self, root: str, *args: Any):
         self._cwd = os.getcwd()
         self._root = root
-        super().__init__(server, sock, address)
+        super().__init__(*args)
 
-    def translate_path(self, path):
+    def translate_path(self, path: str) -> str:
         """Returns a path translated to the chosen directory."""
         path = http.server.SimpleHTTPRequestHandler.translate_path(self, path)
         return os.path.join(self._root, os.path.relpath(path, self._cwd))
 
 
-def _factory(cls, *cls_args, **cls_kwargs):
+FactoryType = TypeVar('FactoryType')
+
+
+def _factory(cls: Type[FactoryType], *cls_args: Any,
+             **cls_kwargs: Any) -> Callable[..., FactoryType]:
     """Factory for GdbServer websocket support."""
-    def _wrapped_factory(*args, **kwargs):
+    @functools.wraps(cls)
+    def _wrapped_factory(*args: Any, **kwargs: Any) -> FactoryType:
         merged_args = cls_args + args
         merged_kwargs = {}
         for src in (cls_kwargs, kwargs):
@@ -330,7 +362,7 @@ def _factory(cls, *cls_args, **cls_kwargs):
     return _wrapped_factory
 
 
-def main():
+def main() -> None:
     """Main entrypoint."""
     parser = argparse.ArgumentParser()
     parser.add_argument('--verbose', '-v', action='store_true')
