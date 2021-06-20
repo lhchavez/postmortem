@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "esModuleInterop": true,
+    "lib": ["es2020", "dom"],
+    "module": "es2015",
+    "moduleResolution": "node",
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "outDir": "dist",
+    "sourceMap": true,
+    "target": "es2015"
+  }
+}

@@ -6,6 +6,7 @@ flow graph. This is intended for post-mortem debugging.
 ## Usage
 
 ```shell
+yarn install
 ./postmortem.py [--gdb-path=/usr/bin/gdb] -- <gdb arguments>
 ```
 

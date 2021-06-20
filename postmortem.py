@@ -395,7 +395,7 @@ def main() -> None:
     socketserver.TCPServer.allow_reuse_address = True
     http_server = socketserver.TCPServer(
         ('localhost', args.http_port),
-        _factory(HTTPHandler, os.path.dirname(os.path.realpath(__file__))))
+        _factory(HTTPHandler, os.path.join(os.path.dirname(os.path.realpath(__file__)), 'dist')))
     http_port = http_server.socket.getsockname()[1]
     threading.Thread(target=http_server.serve_forever, daemon=True).start()
 
