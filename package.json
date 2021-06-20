@@ -19,7 +19,7 @@
     "webpack-cli": "^4.7.2"
   },
   "dependencies": {
-    "codemirror": "5.53.2",
+    "codemirror": "5.58.2",
     "golden-layout": "^2.2.1"
   }
 }
