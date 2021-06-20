@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request: {}
+  push:
+    branches:
+      - main
+
+jobs:
+  php:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions/setup-python@v2
+        with:
+          python-version: '3.8'
+
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+
+      - name: lint:python
+        run: |
+          python3 -m pip install mypy yapf
+          git ls-tree --name-only -r HEAD | grep py$ | xargs -- python3 -m mypy --strict
+          git ls-tree --name-only -r HEAD | grep py$ | xargs -- python3 -m yapf -i
+          if [[ "$(git status --porcelain)" != "" ]]; then
+            echo "There are some files that have not been yapf-formatted:"
+            git status
+            exit 1
+          fi
+
+      - name: lint:javascript
+        run: |
+          yarn run format:check
+          yarn run lint
+
+      - name: build JavaScript
+        run: |
+          npm install --global yarn
+          yarn install
+          yarn build

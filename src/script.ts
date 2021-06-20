@@ -3,15 +3,10 @@ import 'codemirror/addon/mode/simple';
 import 'codemirror/mode/clike/clike';
 import 'codemirror/addon/selection/active-line';
 import { GoldenLayout } from 'golden-layout';
-import type {
-  LayoutConfig,
-  ComponentContainer,
-  JsonValue,
-} from 'golden-layout';
+import type { LayoutConfig, ComponentContainer } from 'golden-layout';
 import type {
   GDBMIFrame,
   GDBMIRecord,
-  GDBMIThread,
   AssemblyInstructionRecord,
   DataDisassembleRecord,
   DisassembleGraphRecord,
@@ -27,7 +22,9 @@ import Graph, { Node } from './graph';
 
 class Deferred<T> {
   public resolve: (arg: T) => void;
+
   public reject: () => void;
+
   public readonly promise: Promise<T>;
 
   constructor() {
@@ -86,12 +83,19 @@ CodeMirror.defineSimpleMode('assembly', {
 
 class GraphView {
   private readonly svg: SVGElement;
-  private visible: boolean = false;
-  private dirty: boolean = false;
+
+  private visible = false;
+
+  private dirty = false;
+
   private maxWidth: number;
+
   private maxHeight: number;
-  private miniViewScale: number = 1.0;
+
+  private miniViewScale = 1.0;
+
   private highlightedAddress: number | null = null;
+
   private viewport: {
     x: number;
     y: number;
@@ -101,15 +105,24 @@ class GraphView {
     y: 0,
     scale: 1.0,
   };
-  private mousedown: boolean = false;
-  private mousemoved: boolean = false;
+
+  private mousedown = false;
+
+  private mousemoved = false;
+
   private mouseanchor: { x: number; y: number } | null = null;
-  private viewportMousedown: boolean = false;
-  private debug: boolean = false;
+
+  private viewportMousedown = false;
+
+  private debug = false;
+
   private instructionSpans: { [address: number]: SVGElement } = {};
+
   private instructionNodes: { [address: number]: string } = {};
+
   private readonly graph: Graph;
-  private data: {} = {};
+
+  private data: DisassembleGraphRecord = {};
 
   constructor(svg: SVGElement) {
     this.svg = svg;
@@ -197,7 +210,6 @@ class GraphView {
       return;
     }
     this.dirty = false;
-    const offsetY = 20;
     const blocks: { [addr: string]: Node } = {};
     const graphNode = document.querySelector(
       '#ProgramControlFlowGraph',
@@ -386,7 +398,7 @@ class GraphView {
     this.__updateViewBox();
   }
 
-  private __highlight(address: number, moveArrow: boolean = false): void {
+  private __highlight(address: number, moveArrow = false): void {
     const highlightElement = this.svg.querySelector(
       '#instruction-highlight rect',
     );
@@ -481,6 +493,7 @@ class GraphView {
         this.svg.clientWidth / this.maxWidth,
         this.svg.clientHeight / this.maxHeight,
       ),
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore: wheelDelta _should_ be part of MouseWheelEvent
       Math.min(this.viewport.scale + ev.wheelDelta / 1200.0, 1.0),
     );
@@ -618,7 +631,9 @@ class GraphView {
 
 class Machine {
   public isa: undefined | string;
+
   public bits: undefined | number;
+
   public registers: Array<string>;
 
   constructor() {
@@ -721,13 +736,14 @@ function main() {
 
   const socket = new WebSocket(`ws://localhost:${payload.websocketPort}`);
   let payloadCount = 0;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const promiseMapping: { [token: number]: Deferred<any> } = {};
   function socketSend<T>(
     payload: {
       method: string;
       token?: number;
       command?: string;
-    } & { [key: string]: any },
+    } & { [key: string]: any }, // eslint-disable-line @typescript-eslint/no-explicit-any
   ): Promise<T> {
     payload.token = ++payloadCount;
     socket.send(JSON.stringify(payload));
@@ -746,10 +762,7 @@ function main() {
       layout.eventHub.emitUserBroadcast('consoleAdded', data.payload, 'log');
     } else if (data.type == 'error-stream') {
       layout.eventHub.emitUserBroadcast('consoleAdded', data.payload, 'error');
-    } else if (
-      data.type == 'notify-async' &&
-      data['class'] == 'thread-selected'
-    ) {
+    } else if (data.type == 'notify-async' && data.class == 'thread-selected') {
       layout.eventHub.emitUserBroadcast(
         'threadSelected',
         data.output,
@@ -757,15 +770,15 @@ function main() {
       );
     } else if (
       data.type == 'notify-async' &&
-      (data['class'] == 'thread-created' ||
-        data['class'] == 'thread-exited' ||
-        data['class'] == 'thread-group-added' ||
-        data['class'] == 'thread-group-removed' ||
-        data['class'] == 'thread-group-started' ||
-        data['class'] == 'thread-group-exited')
+      (data.class == 'thread-created' ||
+        data.class == 'thread-exited' ||
+        data.class == 'thread-group-added' ||
+        data.class == 'thread-group-removed' ||
+        data.class == 'thread-group-started' ||
+        data.class == 'thread-group-exited')
     ) {
       dirtyThreads = true;
-    } else if (data.type == 'exec-async' && data['class'] == 'running') {
+    } else if (data.type == 'exec-async' && data.class == 'running') {
       const buttonElement: HTMLButtonElement = document.querySelector(
         '.gdb-console-input button',
       );
@@ -774,7 +787,7 @@ function main() {
       (
         document.querySelector('.gdb-console-input input') as HTMLInputElement
       ).disabled = true;
-    } else if (data.type == 'exec-async' && data['class'] == 'stopped') {
+    } else if (data.type == 'exec-async' && data.class == 'stopped') {
       const buttonElement: HTMLButtonElement = document.querySelector(
         '.gdb-console-input button',
       );
@@ -839,10 +852,10 @@ function main() {
       console.log(`unknown data type: ${data.type}`, data);
     }
   };
-  socket.onerror = function (event) {
+  socket.onerror = (event) => {
     console.error(event);
   };
-  socket.onopen = function (event) {
+  socket.onopen = () => {
     socketSend<RegisterNamesRecord>({
       method: 'run',
       command: '-data-list-register-names',
@@ -969,7 +982,7 @@ function main() {
 
   layout.registerComponentFactoryFunction(
     'control-flow-graph',
-    (container: ComponentContainer, state?: JsonValue) => {
+    (container: ComponentContainer) => {
       const svgNode =
         $(`<svg class="h-100 w-100" xmlns="http://www.w3.org/2000/svg"
            xmlns:xlink="http://www.w3.org/1999/xlink">
@@ -1041,7 +1054,7 @@ function main() {
   );
   layout.registerComponentFactoryFunction(
     'source-editor',
-    (container: ComponentContainer, state?: JsonValue) => {
+    (container: ComponentContainer) => {
       const editorNode = $(`<div class="source-editor h-100 w-100">
         <textarea></textarea>
       </div>`);
@@ -1136,7 +1149,7 @@ function main() {
   );
   layout.registerComponentFactoryFunction(
     'disassembly',
-    (container: ComponentContainer, state?: JsonValue) => {
+    (container: ComponentContainer) => {
       const assemblyNode = $(`<div class="assembly-editor w-100 h-100">
         <textarea></textarea>
       </div>`);
@@ -1213,8 +1226,8 @@ function main() {
           socketSend<DisassembleGraphRecord>({
             method: 'disassemble-graph',
             isa: machine.isa,
-            startAddress: startAddress,
-            endAddress: endAddress,
+            startAddress,
+            endAddress,
           }).then((record) => {
             const address = parseInt(currentAddress.substring(2), 16);
             layout.eventHub.emitUserBroadcast('graphReady', record, address);
@@ -1247,7 +1260,7 @@ function main() {
   );
   layout.registerComponentFactoryFunction(
     'registers',
-    (container: ComponentContainer, state?: JsonValue) => {
+    (container: ComponentContainer) => {
       const registersNode = $(`<div class="registers w-100 h-100">
         <table class="w-100">
           <thead>
@@ -1268,15 +1281,15 @@ function main() {
             registersElement.removeChild(registersElement.firstChild);
           }
           for (let i = 0; i < record['register-values'].length; i++) {
-            let reg = record['register-values'][i];
-            if (parseInt(reg.number) > machine.registerNames.length) {
+            const reg = record['register-values'][i];
+            if (parseInt(reg.number, 10) > machine.registerNames.length) {
               continue;
             }
             const rowElement = document.createElement('tr');
             let cellElement = document.createElement('td');
             cellElement.appendChild(
               document.createTextNode(
-                machine.registerNames[parseInt(reg.number)],
+                machine.registerNames[parseInt(reg.number, 10)],
               ),
             );
             rowElement.appendChild(cellElement);
@@ -1291,7 +1304,7 @@ function main() {
   );
   layout.registerComponentFactoryFunction(
     'stack',
-    (container: ComponentContainer, state?: JsonValue) => {
+    (container: ComponentContainer) => {
       const stackNode = $(`<div class="stack w-100 h-100">
         <table class="w-100">
           <thead>
@@ -1313,7 +1326,7 @@ function main() {
             stackElement.removeChild(stackElement.firstChild);
           }
           let offset = -machine.stackRedZone;
-          for (let entry of record['memory']) {
+          for (const entry of record.memory) {
             const rowElement = document.createElement('tr');
             let cellElement = document.createElement('td');
 
@@ -1340,7 +1353,7 @@ function main() {
   );
   layout.registerComponentFactoryFunction(
     'console',
-    (container: ComponentContainer, state?: JsonValue) => {
+    (container: ComponentContainer) => {
       const cmdHistory: string[] = [];
       let cmdHistoryIdx = 0;
 
@@ -1412,12 +1425,12 @@ function main() {
           socketSend<void>({
             method: 'run',
             command: '-exec-continue',
-          }).then((record) => {});
+          });
         } else {
           socketSend<void>({
             method: 'run',
             command: '-exec-interrupt --all',
-          }).then((record) => {});
+          });
         }
       });
       layout.eventHub.on(
@@ -1487,7 +1500,7 @@ function main() {
         layout.eventHub.emitUserBroadcast(
           'stackReady',
           threads[selectedThread.id].stack,
-          parseInt(currentFrame.level),
+          parseInt(currentFrame.level, 10),
         );
       } else {
         socketSend<StackListFramesRecord>({
@@ -1498,7 +1511,7 @@ function main() {
           layout.eventHub.emitUserBroadcast(
             'stackReady',
             threads[selectedThread.id].stack,
-            parseInt(currentFrame.level),
+            parseInt(currentFrame.level, 10),
           );
         });
       }
@@ -1533,7 +1546,7 @@ function main() {
             ),
           );
         }
-        if (parseInt(frame.level) == currentFrameIndex) {
+        if (parseInt(frame.level, 10) === currentFrameIndex) {
           frameElement.selected = true;
         }
         framesElement.appendChild(frameElement);
@@ -1544,7 +1557,7 @@ function main() {
   document
     .querySelector('select[name="thread"]')
     .addEventListener('change', (ev) => {
-      const threadIndex = parseInt((ev.target as HTMLSelectElement).value);
+      const threadIndex = parseInt((ev.target as HTMLSelectElement).value, 10);
       socketSend<void>({
         method: 'run',
         command: `-thread-select ${threadIndex}`,
@@ -1559,12 +1572,12 @@ function main() {
   document
     .querySelector('select[name="frame"]')
     .addEventListener('change', (ev) => {
-      const frameIndex = parseInt((ev.target as HTMLSelectElement).value);
+      const frameIndex = parseInt((ev.target as HTMLSelectElement).value, 10);
       socketSend<void>({
         method: 'run',
         command: `-stack-select-frame ${frameIndex}`,
       }).then(() => {
-        const stack = threads[currentThread.id].stack;
+        const { stack } = threads[currentThread.id];
         if (!stack) {
           return;
         }
@@ -1575,7 +1588,7 @@ function main() {
         );
       });
     });
-  window.addEventListener('resize', (ev) =>
+  window.addEventListener('resize', () =>
     layout.setSize(window.innerWidth, window.innerHeight),
   );
 }

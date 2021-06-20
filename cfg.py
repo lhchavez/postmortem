@@ -168,7 +168,6 @@ def reverse_postorder(
 
 class Disassembler:
     """A control flow graph from a disassembled code."""
-
     def __init__(self,
                  isa: str,
                  *,
@@ -195,7 +194,11 @@ class Disassembler:
 
         self._raw_instructions = raw_instructions
 
-    def disassemble(self, code: bytes, address_range: Tuple[int, int]) -> Dict[str, Dict[str, List[str]]]:
+    def disassemble(
+        self,
+        code: bytes,
+        address_range: Tuple[int, int],
+    ) -> Dict[str, Dict[str, List[str]]]:
         """A JSON-friendly representation of this graph."""
         cuts, edges = self._calculate_edges(code, address_range)
         blocks = self._fill_basic_blocks(code, address_range, cuts, edges)
@@ -223,7 +226,9 @@ class Disassembler:
         self, code: bytes, address_range: Tuple[int, int]
     ) -> Tuple[Set[int], Dict[int, List[Tuple[int, str]]]]:
         cuts = set([address_range[0]])
-        edges: DefaultDict[int, List[Tuple[int, str]]] = collections.defaultdict(list)
+        edges: DefaultDict[int,
+                           List[Tuple[int,
+                                      str]]] = collections.defaultdict(list)
         for i in self._disassembler.disasm(code, address_range[0]):
             if capstone.CS_GRP_JUMP in i.groups:
                 cuts.add(i.address + i.size)
@@ -234,7 +239,8 @@ class Disassembler:
                 else:
                     edges[i.address] = [(i.address + i.size, 'fallthrough'),
                                         (i.operands[0].value.imm, 'jump')]
-            elif capstone.CS_GRP_RET in i.groups or i.mnemonic in _HALT_MNEMONICS:
+            elif (capstone.CS_GRP_RET in i.groups
+                  or i.mnemonic in _HALT_MNEMONICS):
                 cuts.add(i.address + i.size)
             else:
                 edges[i.address] = [(i.address + i.size, 'unconditional')]
@@ -248,11 +254,12 @@ class Disassembler:
         self, code: bytes, address_range: Tuple[int, int], cuts: Set[int],
         edges: Dict[int, List[Tuple[int, str]]]
     ) -> Dict[str, Dict[str, List[Any]]]:
-        blocks: DefaultDict[str, Dict[str, List[Any]]] = collections.defaultdict(lambda: {
-            'edges': [],
-            'external_edges': [],
-            'instructions': [],
-        })
+        blocks: DefaultDict[str, Dict[
+            str, List[Any]]] = collections.defaultdict(lambda: {
+                'edges': [],
+                'external_edges': [],
+                'instructions': [],
+            })
 
         current_block: Dict[str, List[Any]] = {
             'edges': [],
@@ -266,10 +273,8 @@ class Disassembler:
                 for dst, edgetype in edges[i.address]:
                     if dst not in cuts:
                         if not address_range[0] <= dst < address_range[1]:
-                            current_block['external_edges'].append({
-                                'target':
-                                '%x' % dst
-                            })
+                            current_block['external_edges'].append(
+                                {'target': '%x' % dst})
                         continue
                     current_block['edges'].append({
                         'type': edgetype,
@@ -285,8 +290,8 @@ class Disassembler:
                     'op': i.op_str,
                 }
             current_block['instructions'].append(instruction)
-            # Some amount of padding was added to the code to ensure that the last
-            # instruction is read fully.
+            # Some amount of padding was added to the code to ensure that the
+            # last instruction is read fully.
             if i.address >= address_range[1]:
                 break
         return blocks

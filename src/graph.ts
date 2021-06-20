@@ -3,9 +3,11 @@ function extend<T1, T2>(a: T1, b: T2): T1 & T2 {
     if (!b.hasOwnProperty(key)) {
       continue;
     }
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     a[key] = b[key];
   }
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore
   return a;
 }
@@ -23,7 +25,7 @@ Set.prototype.equals = function <T>(setB: Set<T>): boolean {
   if (this.size != setB.size) {
     return false;
   }
-  for (let elem of setB) {
+  for (const elem of setB) {
     if (!this.has(elem)) {
       return false;
     }
@@ -59,8 +61,11 @@ Set.prototype.difference = function <T>(setB: Set<T>): Set<T> {
 
 class BBox {
   public x: number;
+
   public y: number;
+
   public readonly width: number;
+
   public readonly height: number;
 
   constructor(x: number, y: number, w: number, h: number) {
@@ -81,10 +86,10 @@ class BBox {
     if (box.empty) {
       return this;
     }
-    const left = Math.min(this.x, box.x),
-      top = Math.min(this.y, box.y),
-      right = Math.max(this.x + this.width, box.x + box.width),
-      bottom = Math.max(this.y + this.height, box.y + box.height);
+    const left = Math.min(this.x, box.x);
+    const top = Math.min(this.y, box.y);
+    const right = Math.max(this.x + this.width, box.x + box.width);
+    const bottom = Math.max(this.y + this.height, box.y + box.height);
     return new BBox(left, top, right - left, bottom - top);
   }
 
@@ -124,8 +129,10 @@ type Edge = {
 
 export default class Graph {
   private _nodes: { [id: string]: Node } = {};
+
   private _edges: Array<Edge> = [];
-  private _dirty: boolean = false;
+
+  private _dirty = false;
 
   constructor() {
     this.clear();
@@ -145,7 +152,7 @@ export default class Graph {
     this._dirty = true;
     this._nodes[id] = extend(
       {
-        id: id,
+        id,
         x: 0,
         y: 0,
         inEdges: [],
@@ -155,20 +162,29 @@ export default class Graph {
     );
   }
 
-  setEdge(from: string, to: string, edge: { type: string }) {
+  setEdge(from: string, to: string, edge: { type: string }): void {
     this._dirty = true;
     this._edges.push(
-      extend({ from, to, back: false, points: [], element: null }, edge),
+      extend(
+        {
+          from,
+          to,
+          back: false,
+          points: [],
+          element: null,
+        },
+        edge,
+      ),
     );
   }
 
   layout(): void {
-    for (let edge of this._edges) {
+    for (const edge of this._edges) {
       this._nodes[edge.from].outEdges.push(edge);
       this._nodes[edge.to].inEdges.push(edge);
     }
     let entry = null;
-    for (let node of this.nodes) {
+    for (const node of this.nodes) {
       if (node.inEdges.length == 0) {
         entry = node;
         break;
@@ -194,12 +210,12 @@ export default class Graph {
         if (key == entry.id) {
           continue;
         }
-        let node = this._nodes[key];
+        const node = this._nodes[key];
         let predDominators = allNodes;
-        for (let edge of node.inEdges) {
+        for (const edge of node.inEdges) {
           predDominators = predDominators.intersection(dominators[edge.from]);
         }
-        let newDominatorSet = new Set([node.id]).union(predDominators);
+        const newDominatorSet = new Set([node.id]).union(predDominators);
         if (!dominators[node.id].equals(newDominatorSet)) {
           dominators[node.id] = newDominatorSet;
           dirty = true;
@@ -207,9 +223,9 @@ export default class Graph {
       }
     }
 
-    let strictlyDominates: { [id: string]: Set<string> } = {};
-    for (let node of this.nodes) {
-      for (let dominator of dominators[node.id]) {
+    const strictlyDominates: { [id: string]: Set<string> } = {};
+    for (const node of this.nodes) {
+      for (const dominator of dominators[node.id]) {
         if (!strictlyDominates.hasOwnProperty(dominator)) {
           strictlyDominates[dominator] = new Set<string>();
         }
@@ -219,19 +235,17 @@ export default class Graph {
       }
     }
 
-    let immediatelyDominates: { [id: string]: Set<string> } = {};
-    let idom: { [id: string]: string } = {};
-    for (let node in strictlyDominates) {
+    const immediatelyDominates: { [id: string]: Set<string> } = {};
+    const idom: { [id: string]: string } = {};
+    for (const node in strictlyDominates) {
       let result = strictlyDominates[node];
-      for (let child of strictlyDominates[node]) {
+      for (const child of strictlyDominates[node]) {
         result = result.difference(strictlyDominates[child]);
       }
       immediatelyDominates[node] = result;
       for (const child of immediatelyDominates[node]) {
         if (idom.hasOwnProperty(child)) {
-          throw new Error(
-            'Node ' + child + "'s immediate dominator is non-unique",
-          );
+          throw new Error(`Node ${child}'s immediate dominator is non-unique`);
         }
         idom[child] = node;
       }
@@ -241,25 +255,31 @@ export default class Graph {
     }
 
     let dfs: (node: string) => void;
-    let visited = new Set();
-    const dominatorTree = (node: string) => {
-      let keys = Array.from(immediatelyDominates[node].values());
-      keys.sort();
-      return keys;
-    };
-    const basicBlockTree = (id: string) => {
-      let node = this._nodes[id];
-      if (node.outEdges.length == 0) {
-        return [];
-      } else if (node.outEdges.length == 1) {
-        return [node.outEdges[0].to];
-      } else if (node.outEdges[0].type == 'fallthrough') {
-        return [node.outEdges[0].to, node.outEdges[1].to];
-      } else {
+    const visited = new Set();
+    let children: (node: string) => string[];
+    if (true) {
+      const dominatorTree = (node: string) => {
+        const keys = Array.from(immediatelyDominates[node].values());
+        keys.sort();
+        return keys;
+      };
+      children = dominatorTree;
+    } else {
+      const basicBlockTree = (id: string) => {
+        const node = this._nodes[id];
+        if (node.outEdges.length == 0) {
+          return [];
+        }
+        if (node.outEdges.length == 1) {
+          return [node.outEdges[0].to];
+        }
+        if (node.outEdges[0].type == 'fallthrough') {
+          return [node.outEdges[0].to, node.outEdges[1].to];
+        }
         return [node.outEdges[1].to, node.outEdges[0].to];
-      }
-    };
-    let children = dominatorTree; //basicBlockTree;
+      };
+      children = basicBlockTree;
+    }
 
     // Determine back edges.
     for (const edge of this._edges) {
@@ -267,7 +287,7 @@ export default class Graph {
         edge.to == edge.from || strictlyDominates[edge.to].has(edge.from);
     }
 
-    let exits = [];
+    const exits = [];
     for (const node of this.nodes) {
       let forwardOutEdges = 0;
       for (const edge of node.outEdges) {
@@ -281,19 +301,20 @@ export default class Graph {
     }
 
     // Is graph acyclic?
-    var colors: { [node: string]: string } = {};
-    for (let node of Object.keys(this._nodes)) {
+    let colors: { [node: string]: string } = {};
+    for (const node of Object.keys(this._nodes)) {
       colors[node] = 'white';
     }
     dfs = (node: string) => {
       if (colors[node] == 'black') {
         return;
-      } else if (colors[node] == 'gray') {
+      }
+      if (colors[node] == 'gray') {
         console.error('Graph not acyclic', node);
         return;
       }
       colors[node] = 'gray';
-      for (let edge of this._nodes[node].outEdges) {
+      for (const edge of this._nodes[node].outEdges) {
         if (edge.back) continue;
         dfs(edge.to);
       }
@@ -340,14 +361,14 @@ export default class Graph {
           continue;
         }
         let minY = 0;
-        for (let edge of this._nodes[node].inEdges) {
+        for (const edge of this._nodes[node].inEdges) {
           if (
             edge.back ||
             (root != edge.from && !strictlyDominates[root].has(edge.from))
           ) {
             continue;
           }
-          let parentNode = this._nodes[edge.from];
+          const parentNode = this._nodes[edge.from];
           let betterParent = parentNode.id;
           while (
             idom.hasOwnProperty(betterParent) &&
@@ -369,7 +390,7 @@ export default class Graph {
         }
         this._nodes[node].subtreeBBox.y = minY;
         if (layers.hasOwnProperty(minY)) {
-          let sibling = this._nodes[layers[minY].slice(-1)[0]];
+          const sibling = this._nodes[layers[minY].slice(-1)[0]];
           this._nodes[node].subtreeBBox.x =
             sibling.subtreeBBox.x + sibling.subtreeBBox.width + 30;
           layers[minY].push(node);
@@ -382,17 +403,17 @@ export default class Graph {
       this._nodes[root].subtreeBBox = bbox.union(this._nodes[root].subtreeBBox);
       this._nodes[root].x =
         (this._nodes[root].subtreeBBox.width - this._nodes[root].width) / 2.0;
-      for (let layer of Object.values(layers)) {
-        let leftmost = this._nodes[layer[0]];
-        let rightmost = this._nodes[layer[layer.length - 1]];
-        let layerWidth =
+      for (const layer of Object.values(layers)) {
+        const leftmost = this._nodes[layer[0]];
+        const rightmost = this._nodes[layer[layer.length - 1]];
+        const layerWidth =
           rightmost.subtreeBBox.x +
           rightmost.subtreeBBox.width -
           leftmost.subtreeBBox.x;
-        let layerOffset =
+        const layerOffset =
           (this._nodes[root].subtreeBBox.width - layerWidth) / 2.0 -
           leftmost.subtreeBBox.x;
-        for (let node of layer) {
+        for (const node of layer) {
           if (node == root) {
             continue;
           }
@@ -405,8 +426,7 @@ export default class Graph {
         return;
       }
       visited.add(node);
-      let x = 0;
-      for (let child of children(node)) {
+      for (const child of children(node)) {
         if (visited.has(child)) {
           continue;
         }
@@ -426,7 +446,7 @@ export default class Graph {
       this._nodes[node].subtreeBBox.y += offsetY;
       this._nodes[node].x += this._nodes[node].subtreeBBox.x;
       this._nodes[node].y += this._nodes[node].subtreeBBox.y;
-      for (let child of children(node)) {
+      for (const child of children(node)) {
         if (visited.has(child)) {
           continue;
         }
@@ -439,10 +459,10 @@ export default class Graph {
     };
     otherDfs(entry.id, 0, 0);
 
-    for (let edge of this._edges) {
-      let from = this._nodes[edge.from];
-      let to = this._nodes[edge.to];
-      var offsetX = 0;
+    for (const edge of this._edges) {
+      const from = this._nodes[edge.from];
+      const to = this._nodes[edge.to];
+      let offsetX = 0;
       if (edge.type == 'fallthrough') {
         offsetX = -5;
       } else if (edge.type == 'jump') {
@@ -470,15 +490,15 @@ export default class Graph {
     this._dirty = false;
   }
 
-  get dirty() {
+  get dirty(): boolean {
     return this._dirty;
   }
 
-  get nodes() {
+  get nodes(): Node[] {
     return Object.values(this._nodes);
   }
 
-  get edges() {
+  get edges(): Edge[] {
     return this._edges;
   }
 }

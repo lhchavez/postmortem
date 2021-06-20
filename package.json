@@ -4,13 +4,21 @@
   "version": "1.0.0",
   "main": "./dist/main.js",
   "scripts": {
-    "build": "webpack"
+    "build": "webpack",
+    "lint": "eslint src/**/*.ts",
+    "format": "prettier --write src/**/*.ts",
+    "format:check": "prettier --write src/**/*.ts"
   },
   "devDependencies": {
     "@types/codemirror": "^5.60.0",
     "@types/jquery": "^3.5.5",
+    "@typescript-eslint/eslint-plugin": "^4.27.0",
+    "@typescript-eslint/parser": "^4.27.0",
     "copy-webpack-plugin": "^9.0.0",
     "eslint": "^7.29.0",
+    "eslint-config-airbnb-base": "^14.2.1",
+    "eslint-config-prettier": "^8.3.0",
+    "eslint-plugin-import": "^2.23.4",
     "html-webpack-plugin": "^5.3.1",
     "prettier": "^2.3.1",
     "ts-loader": "^9.2.3",

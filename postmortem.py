@@ -1,5 +1,4 @@
 #!/usr/bin/python3
-
 """A tiny gdb frontend. This is intended for post-mortem debugging."""
 
 import argparse
@@ -15,11 +14,12 @@ import socketserver
 import subprocess
 import sys
 import threading
-from typing import (Any, Callable, Dict, Iterable, List, Optional, Sequence,
-                    Tuple, TypeVar, Type, Union)
+from typing import (Any, Callable, Dict, Iterable, IO, List, Optional,
+                    Sequence, Tuple, TypeVar, Type)
 
-sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                             'simple-websocket-server'))
+sys.path.append(
+    os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                 'simple-websocket-server'))
 
 # pylint: disable=import-error,wrong-import-position
 from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket  # type: ignore
@@ -29,7 +29,6 @@ import cfg
 
 class GdbConnection:  # pylint: disable=too-few-public-methods
     """Represents a gdb connection with the gdb/mi protocol."""
-
     def __init__(self, gdb_path: str, gdb_args: Sequence[str], ws: WebSocket):
         self._ws = ws
         self._ptm, self._pts = pty.openpty()
@@ -38,12 +37,16 @@ class GdbConnection:  # pylint: disable=too-few-public-methods
              '--tty=%s' % os.ttyname(self._pts)) + tuple(gdb_args),
             stdout=subprocess.PIPE,
             stdin=subprocess.PIPE)
+        if not self._p.stdin or not self._p.stdout:
+            raise Exception('')
+        self._stdin: IO[bytes] = self._p.stdin
+        self._stdout: IO[bytes] = self._p.stdout
         for message in self._read_response():
             self._ws.sendMessage(json.dumps(message))
         self.send(b'-enable-frame-filters')
 
     def send(self,
-            *args: bytes,
+             *args: bytes,
              token: Optional[int] = None) -> Iterable[Dict[str, Any]]:
         """Sends a command to gdb."""
         payload = b''
@@ -51,8 +54,8 @@ class GdbConnection:  # pylint: disable=too-few-public-methods
             payload += b'%d' % token
         payload += b' '.join(args) + b'\n'
         logging.debug('Wrote %s', payload)
-        self._p.stdin.write(payload)
-        self._p.stdin.flush()
+        self._stdin.write(payload)
+        self._stdin.flush()
         yield from self._read_response()
 
     @staticmethod
@@ -89,7 +92,7 @@ class GdbConnection:  # pylint: disable=too-few-public-methods
     def _parse_list(line: bytes, value_idx: int) -> Tuple[List[Any], int]:
         result: List[Any] = []
         assert line[value_idx] == ord('[')
-        if line[value_idx+1] == ord(']'):
+        if line[value_idx + 1] == ord(']'):
             return result, value_idx + 2
         while line[value_idx] != ord(']'):
             value, value_idx = GdbConnection._parse_value(line, value_idx + 1)
@@ -105,7 +108,7 @@ class GdbConnection:  # pylint: disable=too-few-public-methods
     ) -> Tuple[Dict[str, Any], int]:
         result: Dict[str, Any] = {}
         assert line[value_idx] == opening
-        if line[value_idx+1] == closing:
+        if line[value_idx + 1] == closing:
             return result, value_idx + 2
         while line[value_idx] != closing:
             variable_idx = value_idx + 1
@@ -134,7 +137,8 @@ class GdbConnection:  # pylint: disable=too-few-public-methods
         return line[value_idx:result_idx].decode('utf-8'), result_idx
 
     @staticmethod
-    def _parse_record(line: bytes, result_idx: int) -> Tuple[str, Dict[str, str]]:
+    def _parse_record(line: bytes,
+                      result_idx: int) -> Tuple[str, Dict[str, str]]:
         result: Dict[str, str] = {}
         class_name, result_idx = GdbConnection._parse_class(line, result_idx)
         while result_idx < len(line):
@@ -142,7 +146,7 @@ class GdbConnection:  # pylint: disable=too-few-public-methods
             value_idx = line.index(b'=', variable_idx)
             variable = line[variable_idx:value_idx].decode('utf-8')
             result[variable], result_idx = GdbConnection._parse_value(
-                line, value_idx+1)
+                line, value_idx + 1)
         return class_name, result
 
     @staticmethod
@@ -196,14 +200,14 @@ class GdbConnection:  # pylint: disable=too-few-public-methods
     def _read_response(self) -> Iterable[Dict[str, Any]]:
         """Reads a response from gdb."""
         while True:
-            line = self._p.stdout.readline()
+            line = self._stdout.readline()
             logging.debug('Read %s', line)
             if not line or line == b'(gdb) \n':
                 break
             yield GdbConnection._parse_line(line.rstrip())
 
 
-class GdbServer(WebSocket):
+class GdbServer(WebSocket):  # type: ignore
     """A WebSocket connection to the browser."""
 
     # pylint: disable=too-many-arguments
@@ -252,14 +256,15 @@ class GdbServer(WebSocket):
                 b'%d' % (address_range[1] - address_range[0] + 32)):
             if message['type'] == 'result':
                 graph = cfg.Disassembler(isa).disassemble(
-                    base64.b16decode(message['record']['memory'][0]['contents'],
-                                     casefold=True),
-                    address_range)
-                self.sendMessage(json.dumps({
-                    'type': 'result',
-                    'record': graph,
-                    'token': token,
-                }))
+                    base64.b16decode(
+                        message['record']['memory'][0]['contents'],
+                        casefold=True), address_range)
+                self.sendMessage(
+                    json.dumps({
+                        'type': 'result',
+                        'record': graph,
+                        'token': token,
+                    }))
             else:
                 self.sendMessage(json.dumps(message))
 
@@ -268,10 +273,8 @@ class GdbServer(WebSocket):
         symbol_re = re.compile(r'^(0x[0-9a-f]+)\s+([^\n]+)\n$')
 
         functions = []
-        for message in self._connection.send(
-                b'-interpreter-exec',
-                b'console',
-                b'"info functions"'):
+        for message in self._connection.send(b'-interpreter-exec', b'console',
+                                             b'"info functions"'):
             if message['type'] != 'console-stream':
                 continue
             match = symbol_re.match(message['payload'])
@@ -282,11 +285,12 @@ class GdbServer(WebSocket):
                 'name': match.group(2),
             })
         functions.sort(key=lambda x: x['address'])
-        self.sendMessage(json.dumps({
-            'type': 'result',
-            'record': functions,
-            'token': token,
-        }))
+        self.sendMessage(
+            json.dumps({
+                'type': 'result',
+                'record': functions,
+                'token': token,
+            }))
 
     def handleMessage(self) -> None:  # pylint: disable=invalid-name
         """Handles one WebSockets message."""
@@ -333,7 +337,6 @@ class GdbServer(WebSocket):
 
 class HTTPHandler(http.server.SimpleHTTPRequestHandler):
     """A SimpleHTTPRequestHandler that serves from root instead of CWD."""
-
     def __init__(self, root: str, *args: Any):
         self._cwd = os.getcwd()
         self._root = root
@@ -341,7 +344,8 @@ class HTTPHandler(http.server.SimpleHTTPRequestHandler):
 
     def translate_path(self, path: str) -> str:
         """Returns a path translated to the chosen directory."""
-        path = http.server.SimpleHTTPRequestHandler.translate_path(self, path)
+        path = http.server.SimpleHTTPRequestHandler.translate_path(  # type: ignore
+            self, path)
         return os.path.join(self._root, os.path.relpath(path, self._cwd))
 
 
@@ -359,6 +363,7 @@ def _factory(cls: Type[FactoryType], *cls_args: Any,
             for key, val in src.items():
                 merged_kwargs[key] = val
         return cls(*merged_args, *merged_kwargs)
+
     return _wrapped_factory
 
 
@@ -366,15 +371,25 @@ def main() -> None:
     """Main entrypoint."""
     parser = argparse.ArgumentParser()
     parser.add_argument('--verbose', '-v', action='store_true')
-    parser.add_argument('--http-port', default=0, type=int,
+    parser.add_argument('--http-port',
+                        default=0,
+                        type=int,
                         help='TCP port for the web server.')
-    parser.add_argument('--ws-port', default=0, type=int,
+    parser.add_argument('--ws-port',
+                        default=0,
+                        type=int,
                         help='TCP port for the WebSockets.')
-    parser.add_argument('--no-launch', dest='launch', action='store_false',
+    parser.add_argument('--no-launch',
+                        dest='launch',
+                        action='store_false',
                         help='Automatically launch a browser.')
-    parser.add_argument('--gdb-path', default='/usr/bin/gdb',
+    parser.add_argument('--gdb-path',
+                        default='/usr/bin/gdb',
                         help='Path to the gdb binary')
-    parser.add_argument('gdb_args', metavar='GDB-ARG', type=str, nargs='+',
+    parser.add_argument('gdb_args',
+                        metavar='GDB-ARG',
+                        type=str,
+                        nargs='+',
                         help='Argument to gdb')
 
     args = parser.parse_args()
@@ -384,9 +399,9 @@ def main() -> None:
     else:
         logging.basicConfig(level=logging.INFO)
 
-    gdb_server = SimpleWebSocketServer('localhost', args.ws_port,
-                                       _factory(GdbServer, args.gdb_path,
-                                                args.gdb_args))
+    gdb_server = SimpleWebSocketServer(
+        'localhost', args.ws_port,
+        _factory(GdbServer, args.gdb_path, args.gdb_args))
     gdb_server_port = gdb_server.serversocket.getsockname()[1]
     websocket_thread = threading.Thread(target=gdb_server.serveforever,
                                         daemon=True)
@@ -395,12 +410,16 @@ def main() -> None:
     socketserver.TCPServer.allow_reuse_address = True
     http_server = socketserver.TCPServer(
         ('localhost', args.http_port),
-        _factory(HTTPHandler, os.path.join(os.path.dirname(os.path.realpath(__file__)), 'dist')))
+        _factory(
+            HTTPHandler,
+            os.path.join(os.path.dirname(os.path.realpath(__file__)), 'dist')))
     http_port = http_server.socket.getsockname()[1]
     threading.Thread(target=http_server.serve_forever, daemon=True).start()
 
     payload = base64.b64encode(
-        json.dumps({'websocketPort': gdb_server_port}).encode('utf-8'))
+        json.dumps({
+            'websocketPort': gdb_server_port
+        }).encode('utf-8'))
     url = 'http://localhost:%d#%s' % (http_port, payload.decode('utf-8'))
     if args.launch:
         subprocess.check_call(['/usr/bin/xdg-open', url])

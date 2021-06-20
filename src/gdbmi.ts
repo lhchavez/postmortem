@@ -19,7 +19,7 @@ export type GDBMIRecord =
   | {
       type: 'result';
       token?: number;
-      record: any;
+      record: any; // eslint-disable-line @typescript-eslint/no-explicit-any
     }
   | {
       type: 'console-stream' | 'log-stream' | 'error-stream';
